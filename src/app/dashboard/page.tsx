@@ -82,6 +82,18 @@ export default function DashboardPage() {
   const [vendorOptions, setVendorOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [standardOptions, setStandardOptions] = useState<string[]>([]);
+  const [manualProductOptions, setManualProductOptions] = useState<Array<{
+    name: string;
+    vendor_product_code: string | null;
+    unit: string | null;
+    standard: string | null;
+  }>>([]);
+  const [editProductOptions, setEditProductOptions] = useState<Array<{
+    name: string;
+    vendor_product_code: string | null;
+    unit: string | null;
+    standard: string | null;
+  }>>([]);
   const [manualForm, setManualForm] = useState<MoneyFormState>({
     vendor_name: '',
     vendor_gst_number: '',
@@ -165,6 +177,24 @@ export default function DashboardPage() {
       setStandardOptions(Array.isArray(s?.standards) ? s.standards : []);
     });
   }, []);
+
+  useEffect(() => {
+    if (!manualOpen) return;
+    const vendor = manualForm.vendor_name.trim();
+    void fetch(`/api/catalog/products?vendor=${encodeURIComponent(vendor)}&limit=200`)
+      .then((r) => r.json())
+      .then((json) => setManualProductOptions(Array.isArray(json?.products) ? json.products : []))
+      .catch(() => setManualProductOptions([]));
+  }, [manualOpen, manualForm.vendor_name]);
+
+  useEffect(() => {
+    if (!editMode) return;
+    const vendor = editForm.vendor_name.trim();
+    void fetch(`/api/catalog/products?vendor=${encodeURIComponent(vendor)}&limit=200`)
+      .then((r) => r.json())
+      .then((json) => setEditProductOptions(Array.isArray(json?.products) ? json.products : []))
+      .catch(() => setEditProductOptions([]));
+  }, [editMode, editForm.vendor_name]);
 
   // ── Toast ─────────────────────────────────────────────────────────────────
   const showToast = (text: string, type: 'success' | 'error' | 'warn') => {
@@ -499,6 +529,24 @@ export default function DashboardPage() {
           <option key={s} value={s} />
         ))}
       </datalist>
+      <datalist id="manual-product-options">
+        {manualProductOptions.map((p) => (
+          <option
+            key={`${p.name}-${p.vendor_product_code ?? ''}`}
+            value={p.name}
+            label={`${p.vendor_product_code ?? ''}${p.unit ? ` · ${p.unit}` : ''}${p.standard ? ` · ${p.standard}` : ''}`}
+          />
+        ))}
+      </datalist>
+      <datalist id="edit-product-options">
+        {editProductOptions.map((p) => (
+          <option
+            key={`${p.name}-${p.vendor_product_code ?? ''}`}
+            value={p.name}
+            label={`${p.vendor_product_code ?? ''}${p.unit ? ` · ${p.unit}` : ''}${p.standard ? ` · ${p.standard}` : ''}`}
+          />
+        ))}
+      </datalist>
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-30">
@@ -655,7 +703,24 @@ export default function DashboardPage() {
                         />
                         <input
                           value={it.description}
-                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
+                          list="manual-product-options"
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setManualItems((prev) => {
+                              const next = prev.map((x, i) => i === idx ? { ...x, description: value } : x);
+                              const match = manualProductOptions.find((p) => p.name === value);
+                              if (!match) return next;
+                              return next.map((x, i) => {
+                                if (i !== idx) return x;
+                                return {
+                                  ...x,
+                                  product_code: x.product_code || (match.vendor_product_code ?? ''),
+                                  unit: x.unit || (match.unit ?? ''),
+                                  standard: x.standard || (match.standard ?? ''),
+                                };
+                              });
+                            });
+                          }}
                           className="sm:col-span-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
                           placeholder="Mô tả"
                         />
@@ -1043,7 +1108,24 @@ export default function DashboardPage() {
                                   />
                                   <input
                                     value={it.description}
-                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
+                                    list="edit-product-options"
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      setEditItems((prev) => {
+                                        const next = prev.map((x, i) => i === idx ? { ...x, description: value } : x);
+                                        const match = editProductOptions.find((p) => p.name === value);
+                                        if (!match) return next;
+                                        return next.map((x, i) => {
+                                          if (i !== idx) return x;
+                                          return {
+                                            ...x,
+                                            product_code: x.product_code || (match.vendor_product_code ?? ''),
+                                            unit: x.unit || (match.unit ?? ''),
+                                            standard: x.standard || (match.standard ?? ''),
+                                          };
+                                        });
+                                      });
+                                    }}
                                     className="sm:col-span-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
                                     placeholder="Mô tả"
                                   />

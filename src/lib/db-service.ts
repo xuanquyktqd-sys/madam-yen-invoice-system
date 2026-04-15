@@ -573,3 +573,80 @@ export async function listStandards(limit = 200): Promise<string[]> {
     throw err;
   }
 }
+
+export type ProductSuggestion = {
+  restaurant_product_id: string;
+  name: string;
+  vendor_product_code: string | null;
+  unit: string | null;
+  standard: string | null;
+};
+
+export async function listProducts(opts: {
+  vendorName?: string;
+  q?: string;
+  limit?: number;
+}): Promise<ProductSuggestion[]> {
+  const limit = Math.min(500, Math.max(1, opts.limit ?? 200));
+  const q = (opts.q ?? '').trim();
+  const vendorName = (opts.vendorName ?? '').trim();
+
+  try {
+    const params: unknown[] = [];
+    let idx = 1;
+
+    // Optional vendor filter by name -> vendor id
+    let vendorFilter = '';
+    if (vendorName) {
+      params.push(vendorName);
+      vendorFilter = `WHERE v.name = $${idx++}`;
+    }
+
+    const vendorRes = vendorName
+      ? await pool.query(`SELECT id FROM vendors v ${vendorFilter} LIMIT 1`, params)
+      : { rows: [] as Array<{ id: string }> };
+
+    const vendorId = vendorRes.rows[0]?.id ?? null;
+
+    const where: string[] = [];
+    const p: unknown[] = [];
+    let j = 1;
+
+    if (vendorId) {
+      where.push(`rp.vendor_id = $${j++}`);
+      p.push(vendorId);
+    }
+    if (q) {
+      where.push(`rp.name ILIKE $${j++}`);
+      p.push(`%${q}%`);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const res = await pool.query(
+      `SELECT rp.restaurant_product_id,
+              rp.name,
+              rp.vendor_product_code,
+              u.code AS unit,
+              s.value AS standard
+       FROM restaurant_products rp
+       LEFT JOIN units u ON u.id = rp.unit_id
+       LEFT JOIN standards s ON s.id = rp.standard_id
+       ${whereSql}
+       ORDER BY rp.updated_at DESC NULLS LAST, rp.created_at DESC
+       LIMIT $${j}`,
+      [...p, limit]
+    );
+
+    return res.rows.map((r) => ({
+      restaurant_product_id: r.restaurant_product_id as string,
+      name: r.name as string,
+      vendor_product_code: (r.vendor_product_code as string | null) ?? null,
+      unit: (r.unit as string | null) ?? null,
+      standard: (r.standard as string | null) ?? null,
+    }));
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    throw err;
+  }
+}
