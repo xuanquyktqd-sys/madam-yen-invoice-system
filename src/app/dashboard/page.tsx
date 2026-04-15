@@ -1433,12 +1433,23 @@ export default function DashboardPage() {
                               ['GST Number', selectedInvoice.vendor_gst_number ?? '—'],
                               ['Số hóa đơn', selectedInvoice.invoice_number ?? '—'],
                               ['Ngày', selectedInvoice.invoice_date],
-                              ['Loại', selectedInvoice.is_tax_invoice ? 'Tax Invoice ✅' : 'Quote / Order'],
+                              ['Loại', (() => {
+                                const isCredit = isSelectedCreditNote;
+                                if (isCredit) return 'Credit Note';
+                                if (selectedInvoice.is_tax_invoice) return 'Tax Invoice ✅';
+                                return 'Quote / Order';
+                              })()],
                               ['Danh mục', selectedInvoice.category ?? '—'],
                             ].map(([label, value]) => (
                               <div key={label} className="flex justify-between border-b border-slate-800 pb-2">
                                 <span className="text-slate-400">{label}</span>
-                                <span className="text-white font-medium text-right max-w-[60%]">{value}</span>
+                                <span
+                                  className={`font-medium text-right max-w-[60%] ${
+                                    label === 'Loại' && isSelectedCreditNote ? 'text-red-300' : 'text-white'
+                                  }`}
+                                >
+                                  {value}
+                                </span>
                               </div>
                             ))}
                           </div>
