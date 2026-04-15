@@ -543,6 +543,156 @@ export async function deleteInvoice(id: string): Promise<boolean> {
   return (res.rowCount ?? 0) > 0;
 }
 
+export type CreateCreditNoteInput = {
+  source_invoice_id: string;
+  credit_note_number?: string | null;
+  credit_note_date?: string | null; // YYYY-MM-DD
+  items: Array<{
+    source_item_id: string;
+    quantity: number | string; // positive number from UI
+    amount_excl_gst?: number | string | null; // positive number from UI (optional)
+    price?: number | string | null; // positive number from UI (optional)
+  }>;
+};
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export async function createCreditNoteFromInvoice(input: CreateCreditNoteInput): Promise<SaveResult> {
+  const client = await pool.connect();
+
+  try {
+    const sourceInvoiceId = input.source_invoice_id;
+    if (!sourceInvoiceId) return { success: false, error: 'source_invoice_id is required' };
+    if (!Array.isArray(input.items) || input.items.length === 0) return { success: false, error: 'items is required' };
+
+    const srcInvRes = await client.query(
+      `SELECT * FROM invoices WHERE id=$1`,
+      [sourceInvoiceId]
+    );
+    const srcInvoice = srcInvRes.rows[0] as Record<string, unknown> | undefined;
+    if (!srcInvoice) return { success: false, error: 'Source invoice not found' };
+
+    const ids = input.items.map((it) => it.source_item_id).filter(Boolean);
+    const srcItemsRes = await client.query(
+      `SELECT * FROM invoice_items WHERE invoice_id=$1 AND id = ANY($2::uuid[])`,
+      [sourceInvoiceId, ids]
+    );
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const row of srcItemsRes.rows as Record<string, unknown>[]) {
+      byId.set(String(row.id), row);
+    }
+
+    const normalizedItems = input.items
+      .map((it) => {
+        const row = byId.get(it.source_item_id);
+        if (!row) return null;
+
+        const qty = toNumberOrNull(it.quantity);
+        if (qty === null || qty <= 0) return null;
+
+        const price = toNumberOrNull(it.price) ?? toNumberOrNull(row.price) ?? 0;
+        const amount = toNumberOrNull(it.amount_excl_gst) ?? round2(qty * price);
+
+        return {
+          product_code: (row.product_code as string | null) ?? null,
+          description: String(row.description ?? '').trim(),
+          standard: (row.standard as string | null) ?? null,
+          unit: (row.unit as string | null) ?? null,
+          quantity: -Math.abs(qty),
+          price: Math.abs(price),
+          amount_excl_gst: -Math.abs(amount),
+        };
+      })
+      .filter(Boolean) as Array<{
+        product_code: string | null;
+        description: string;
+        standard: string | null;
+        unit: string | null;
+        quantity: number;
+        price: number;
+        amount_excl_gst: number;
+      }>;
+
+    if (normalizedItems.length === 0) {
+      return { success: false, error: 'No valid items to credit' };
+    }
+
+    const subTotalAbs = normalizedItems.reduce((s, it) => s + Math.abs(it.amount_excl_gst), 0);
+    const subTotal = -round2(subTotalAbs);
+    const freight = 0;
+    const gstAmount = round2(subTotal * 0.15);
+    const totalAmount = round2(subTotal + freight + gstAmount);
+
+    const creditNoteDate =
+      (input.credit_note_date && String(input.credit_note_date).slice(0, 10)) ||
+      new Date().toISOString().slice(0, 10);
+
+    const generatedNumber = `CN-${String(sourceInvoiceId).slice(0, 8)}-${Date.now()}`;
+    const creditNoteNumber = (input.credit_note_number ?? '').trim() || generatedNumber;
+
+    await client.query('BEGIN');
+
+    const invIns = await client.query(
+      `INSERT INTO invoices
+        (type, vendor_name, vendor_address, vendor_gst_number, invoice_number,
+         invoice_date, currency, is_tax_invoice, billing_name, billing_address,
+         sub_total, freight, gst_amount, total_amount, image_url, status, category, parent_invoice_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       RETURNING id`,
+      [
+        'Credit Note',
+        srcInvoice.vendor_name,
+        srcInvoice.vendor_address ?? null,
+        srcInvoice.vendor_gst_number ?? null,
+        creditNoteNumber,
+        creditNoteDate,
+        srcInvoice.currency ?? 'NZD',
+        true,
+        srcInvoice.billing_name ?? null,
+        srcInvoice.billing_address ?? null,
+        subTotal,
+        freight,
+        gstAmount,
+        totalAmount,
+        null,
+        'pending_review',
+        srcInvoice.category ?? null,
+        sourceInvoiceId,
+      ]
+    );
+
+    const newInvoiceId = String(invIns.rows[0].id);
+
+    for (const item of normalizedItems) {
+      await client.query(
+        `INSERT INTO invoice_items
+          (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          newInvoiceId,
+          item.product_code,
+          item.description,
+          item.standard,
+          item.quantity,
+          item.unit,
+          item.price,
+          item.amount_excl_gst,
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+    return { success: true, invoiceId: newInvoiceId };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return { success: false, error: (err as Error).message };
+  } finally {
+    client.release();
+  }
+}
+
 // ── Catalog list helpers (used for UI datalist/dropdown) ───────────────────
 export async function listVendors(limit = 200): Promise<string[]> {
   try {

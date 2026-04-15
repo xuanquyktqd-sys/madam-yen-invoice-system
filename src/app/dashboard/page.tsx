@@ -30,6 +30,7 @@ type Invoice = {
   image_url: string | null;
   status: 'pending_review' | 'approved' | 'rejected';
   category: string | null;
+  parent_invoice_id?: string | null;
   invoice_items: InvoiceItem[];
 };
 
@@ -136,6 +137,21 @@ export default function DashboardPage() {
     unit: string;
     price: string;
     amount_excl_gst: string;
+  }>>([]);
+  const [creditOpen, setCreditOpen] = useState(false);
+  const [creditSaving, setCreditSaving] = useState(false);
+  const [creditNumber, setCreditNumber] = useState('');
+  const [creditDate, setCreditDate] = useState(new Date().toISOString().slice(0, 10));
+  const [creditRows, setCreditRows] = useState<Array<{
+    source_item_id: string;
+    selected: boolean;
+    description: string;
+    product_code: string;
+    standard: string;
+    unit: string;
+    quantity: string; // positive
+    price: string; // positive
+    amount_excl_gst: string; // positive
   }>>([]);
 
   const toDateInput = (value: string) => (value || '').slice(0, 10);
@@ -419,6 +435,69 @@ export default function DashboardPage() {
     setEditItems([]);
   };
 
+  const openCreditNote = () => {
+    if (!selectedInvoice) return;
+    setCreditNumber('');
+    setCreditDate(new Date().toISOString().slice(0, 10));
+    const rows = (selectedInvoice.invoice_items ?? [])
+      .filter((it) => !!it.id)
+      .map((it) => ({
+        source_item_id: String(it.id),
+        selected: true,
+        description: it.description ?? '',
+        product_code: it.product_code ?? '',
+        standard: it.standard ?? '',
+        unit: it.unit ?? '',
+        quantity: String(Math.abs(it.quantity ?? 0)),
+        price: String(Math.abs(it.price ?? 0)),
+        amount_excl_gst: String(Math.abs(it.amount_excl_gst ?? 0)),
+      }));
+    setCreditRows(rows);
+    setCreditOpen(true);
+  };
+
+  const submitCreditNote = async () => {
+    if (!selectedInvoice) return;
+    const items = creditRows
+      .filter((r) => r.selected)
+      .map((r) => ({
+        source_item_id: r.source_item_id,
+        quantity: r.quantity,
+        price: r.price,
+        amount_excl_gst: r.amount_excl_gst,
+      }));
+
+    if (!items.length) {
+      showToast('Chọn ít nhất 1 mặt hàng để tạo credit note', 'error');
+      return;
+    }
+
+    setCreditSaving(true);
+    try {
+      const res = await fetch('/api/credit-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_invoice_id: selectedInvoice.id,
+          credit_note_number: creditNumber.trim() || null,
+          credit_note_date: creditDate,
+          items,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? 'Tạo credit note thất bại');
+
+      showToast('✅ Đã tạo Credit Note', 'success');
+      setCreditOpen(false);
+      await fetchInvoices();
+      if (json.invoice) setSelectedInvoice(json.invoice);
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setCreditSaving(false);
+    }
+  };
+
   const saveEdit = async () => {
     if (!selectedInvoice) return;
     if (!editForm.vendor_name.trim() || !editForm.invoice_date.trim() || !editForm.total_amount.trim()) {
@@ -599,6 +678,128 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* ── Credit Note Modal ───────────────────────────────────────────── */}
+        {creditOpen && selectedInvoice && (
+          <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 rounded-2xl w-full max-w-4xl border border-slate-700 shadow-2xl overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h2 className="font-bold text-white text-lg">🧾 Tạo Credit Note</h2>
+                  <p className="text-xs text-slate-400 mt-1">Từ hoá đơn: {selectedInvoice.vendor_name} · #{selectedInvoice.invoice_number ?? '—'}</p>
+                </div>
+                <button onClick={() => setCreditOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <label className="text-sm sm:col-span-2">
+                    <div className="text-slate-400 mb-1">Credit Note Number (tuỳ chọn)</div>
+                    <input
+                      value={creditNumber}
+                      onChange={(e) => setCreditNumber(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
+                      placeholder="CN-..."
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <div className="text-slate-400 mb-1">Ngày</div>
+                    <input
+                      type="date"
+                      value={creditDate}
+                      onChange={(e) => setCreditDate(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    />
+                  </label>
+                </div>
+
+                <div className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
+                  <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                    <div className="text-sm font-semibold text-slate-200">Chọn mặt hàng cần credit</div>
+                    <button
+                      onClick={() => setCreditRows((p) => p.map((r) => ({ ...r, selected: true })))}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold">
+                      Chọn tất cả
+                    </button>
+                  </div>
+                  <div className="max-h-[45vh] overflow-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-slate-900">
+                        <tr className="border-b border-slate-700">
+                          {['', 'Sản phẩm', 'Qty', 'Price', 'Amount (ex GST)'].map((h) => (
+                            <th key={h} className="px-3 py-2 text-left font-semibold text-slate-400">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {creditRows.map((r, idx) => (
+                          <tr key={r.source_item_id} className="border-b border-slate-800/60">
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={r.selected}
+                                onChange={(e) => setCreditRows((p) => p.map((x, i) => i === idx ? { ...x, selected: e.target.checked } : x))}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="text-slate-100 font-medium">{r.description}</div>
+                              <div className="text-slate-500 font-mono">{r.product_code}{r.standard ? ` · ${r.standard}` : ''}{r.unit ? ` · ${r.unit}` : ''}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                inputMode="decimal"
+                                value={r.quantity}
+                                onChange={(e) => setCreditRows((p) => p.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))}
+                                className="w-24 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 font-mono"
+                                placeholder="0"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                inputMode="decimal"
+                                value={r.price}
+                                onChange={(e) => setCreditRows((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                                className="w-28 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 font-mono"
+                                placeholder="0.00"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                inputMode="decimal"
+                                value={r.amount_excl_gst}
+                                onChange={(e) => setCreditRows((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
+                                className="w-36 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 font-mono"
+                                placeholder="0.00"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => setCreditOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold">
+                    Huỷ
+                  </button>
+                  <button
+                    disabled={creditSaving}
+                    onClick={submitCreditNote}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-60">
+                    {creditSaving ? 'Đang tạo...' : 'Tạo Credit Note'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Manual Create Modal ─────────────────────────────────────────── */}
         {manualOpen && (
           <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -894,6 +1095,13 @@ export default function DashboardPage() {
                     <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {selectedInvoice.invoice_date}</p>
                   </div>
                   <div className="flex items-center gap-3">
+                    {!editMode && (
+                      <button
+                        onClick={openCreditNote}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-sm font-semibold transition-all">
+                        🧾 Credit
+                      </button>
+                    )}
                     {!editMode ? (
                       <button
                         onClick={startEdit}

@@ -54,6 +54,18 @@ async function run() {
         UNIQUE (vendor_name, invoice_date, total_amount)
       )`,
     },
+    { name: 'ALTER invoices ADD parent_invoice_id', sql: `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS parent_invoice_id UUID` },
+    {
+      name: 'ADD FK invoices.parent_invoice_id',
+      sql: `DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invoices_parent_invoice_id_fkey') THEN
+          ALTER TABLE invoices
+            ADD CONSTRAINT invoices_parent_invoice_id_fkey
+            FOREIGN KEY (parent_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
+        END IF;
+      END $$`,
+    },
     {
       name: 'CREATE TABLE invoice_items',
       sql: `CREATE TABLE IF NOT EXISTS invoice_items (
@@ -72,6 +84,7 @@ async function run() {
     { name: 'INDEX: vendor',   sql: `CREATE INDEX IF NOT EXISTS idx_invoices_vendor   ON invoices(vendor_name)` },
     { name: 'INDEX: date',     sql: `CREATE INDEX IF NOT EXISTS idx_invoices_date     ON invoices(invoice_date)` },
     { name: 'INDEX: status',   sql: `CREATE INDEX IF NOT EXISTS idx_invoices_status   ON invoices(status)` },
+    { name: 'INDEX: parent',   sql: `CREATE INDEX IF NOT EXISTS idx_invoices_parent_invoice_id ON invoices(parent_invoice_id)` },
     { name: 'INDEX: items',    sql: `CREATE INDEX IF NOT EXISTS idx_items_invoice     ON invoice_items(invoice_id)` },
 
     // ── Phase 1: Catalog normalization (additive) ─────────────────────────

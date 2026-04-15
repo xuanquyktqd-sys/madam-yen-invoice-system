@@ -42,6 +42,17 @@ CREATE TABLE IF NOT EXISTS invoices (
   UNIQUE (vendor_name, invoice_date, total_amount)
 );
 
+-- Optional link for Credit Notes (created from an existing invoice)
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS parent_invoice_id UUID;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invoices_parent_invoice_id_fkey') THEN
+    ALTER TABLE invoices
+      ADD CONSTRAINT invoices_parent_invoice_id_fkey
+      FOREIGN KEY (parent_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
 -- 2. INVOICE_ITEMS (Detail table)
 CREATE TABLE IF NOT EXISTS invoice_items (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -292,6 +303,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_vendor   ON invoices(vendor_name);
 CREATE INDEX IF NOT EXISTS idx_invoices_date     ON invoices(invoice_date);
 CREATE INDEX IF NOT EXISTS idx_invoices_status   ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_invoices_category ON invoices(category);
+CREATE INDEX IF NOT EXISTS idx_invoices_parent_invoice_id ON invoices(parent_invoice_id);
 CREATE INDEX IF NOT EXISTS idx_items_invoice     ON invoice_items(invoice_id);
 
 -- Catalog indexes
