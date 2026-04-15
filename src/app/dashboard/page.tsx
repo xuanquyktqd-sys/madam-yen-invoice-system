@@ -36,10 +36,14 @@ type Invoice = {
 
 type UploadStep = 'idle' | 'preview' | 'confirming' | 'processing' | 'done' | 'error';
 type FilterStatus = 'all' | 'pending_review' | 'approved' | 'rejected';
+type DatePreset = 'all' | 'day' | 'month' | 'custom';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const formatNZD = (n: number) =>
   new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(n);
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const formatYmdLocal = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 const toNumberOrNullInput = (value: string) => {
   const v = value.trim();
@@ -94,6 +98,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
+  const [datePreset, setDatePreset] = useState<DatePreset>('all');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+  const [customFrom, setCustomFrom] = useState<string>(formatYmdLocal(new Date()));
+  const [customTo, setCustomTo] = useState<string>(formatYmdLocal(new Date()));
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [imageZoom, setImageZoom] = useState(1);
   const [imageRotation, setImageRotation] = useState(0);
@@ -183,6 +192,52 @@ export default function DashboardPage() {
 
   const toDateInput = (value: string) => (value || '').slice(0, 10);
 
+  const applyDatePreset = (preset: DatePreset) => {
+    setDatePreset(preset);
+
+    const today = new Date();
+
+    if (preset === 'all') {
+      setDateFrom('');
+      setDateTo('');
+      return;
+    }
+
+    if (preset === 'custom') {
+      // Pause date filter until user clicks "Áp dụng"
+      setDateFrom('');
+      setDateTo('');
+      return;
+    }
+
+    if (preset === 'day') {
+      const ymd = formatYmdLocal(today);
+      setDateFrom(ymd);
+      setDateTo(ymd);
+      return;
+    }
+
+    // month
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    setDateFrom(formatYmdLocal(start));
+    setDateTo(formatYmdLocal(end));
+  };
+
+  const applyCustomRange = () => {
+    const f = customFrom.trim();
+    const t = customTo.trim();
+    if (!f || !t) {
+      showToast('Chọn Từ ngày và Đến ngày', 'error');
+      return;
+    }
+    const from = f <= t ? f : t;
+    const to = f <= t ? t : f;
+    setDatePreset('custom');
+    setDateFrom(from);
+    setDateTo(to);
+  };
+
   // ── Fetch invoices ────────────────────────────────────────────────────────
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -190,6 +245,8 @@ export default function DashboardPage() {
       const params = new URLSearchParams();
       if (filterStatus !== 'all') params.set('status', filterStatus);
       if (search) params.set('search', search);
+      if (dateFrom) params.set('from', dateFrom);
+      if (dateTo) params.set('to', dateTo);
       const res = await fetch(`/api/invoices?${params.toString()}`);
       const json = await res.json();
       setInvoices(json.invoices ?? []);
@@ -199,7 +256,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterStatus, search]);
+  }, [filterStatus, search, dateFrom, dateTo]);
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
   useEffect(() => {
@@ -1602,31 +1659,85 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Filters ────────────────────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              placeholder="Tìm kiếm Vendor, Mã hóa đơn..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-            />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Tìm kiếm Vendor, Mã hóa đơn..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+              />
+            </div>
+            <div className="flex gap-2">
+              {(['all', 'pending_review', 'approved', 'rejected'] as FilterStatus[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setFilterStatus(s)}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border
+                    ${filterStatus === s
+                      ? 'bg-emerald-600 border-emerald-500 text-white'
+                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                  {s === 'all' ? 'Tất cả' : statusConfig[s]?.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-2">
-            {(['all', 'pending_review', 'approved', 'rejected'] as FilterStatus[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setFilterStatus(s)}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border
-                  ${filterStatus === s
-                    ? 'bg-emerald-600 border-emerald-500 text-white'
-                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
-                {s === 'all' ? 'Tất cả' : statusConfig[s]?.label}
-              </button>
-            ))}
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: 'all', label: 'Mọi ngày' },
+                { key: 'day', label: 'Hôm nay' },
+                { key: 'month', label: 'Tháng này' },
+                { key: 'custom', label: 'Tuỳ chọn' },
+              ] as Array<{ key: DatePreset; label: string }>).map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => applyDatePreset(p.key)}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border
+                    ${datePreset === p.key
+                      ? 'bg-slate-800 border-slate-600 text-white'
+                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {datePreset === 'custom' && (
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100"
+                />
+                <span className="text-xs text-slate-500 hidden sm:inline">→</span>
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100"
+                />
+                <button
+                  onClick={applyCustomRange}
+                  className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 transition-colors"
+                >
+                  Áp dụng
+                </button>
+              </div>
+            )}
+
+            {(dateFrom || dateTo) && (
+              <div className="text-xs text-slate-500 sm:ml-auto">
+                Đang lọc: <span className="font-mono text-slate-300">{dateFrom || '…'}</span> →{' '}
+                <span className="font-mono text-slate-300">{dateTo || '…'}</span>
+              </div>
+            )}
           </div>
         </div>
 

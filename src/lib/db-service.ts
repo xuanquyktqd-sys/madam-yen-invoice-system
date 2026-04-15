@@ -446,10 +446,12 @@ export async function updateInvoiceStatus(
 export async function listInvoices(opts: {
   status?: string;
   search?: string;
+  from?: string; // YYYY-MM-DD (inclusive)
+  to?: string; // YYYY-MM-DD (inclusive)
   limit?: number;
   offset?: number;
 }): Promise<{ invoices: Record<string, unknown>[]; total: number }> {
-  const { status, search, limit = 20, offset = 0 } = opts;
+  const { status, search, from, to, limit = 20, offset = 0 } = opts;
 
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -458,6 +460,14 @@ export async function listInvoices(opts: {
   if (status && status !== 'all') {
     conditions.push(`i.status = $${idx++}`);
     params.push(status);
+  }
+  if (from) {
+    conditions.push(`i.invoice_date >= $${idx++}`);
+    params.push(from);
+  }
+  if (to) {
+    conditions.push(`i.invoice_date <= $${idx++}`);
+    params.push(to);
   }
   if (search) {
     conditions.push(`(i.vendor_name ILIKE $${idx} OR i.invoice_number ILIKE $${idx})`);

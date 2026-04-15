@@ -16,16 +16,25 @@ import {
 } from '@/lib/db-service';
 import { deleteInvoiceImageByPublicUrl } from '@/lib/storage-service';
 
+function parseYyyyMmDd(value: string | null): string | undefined {
+  if (!value) return undefined;
+  const v = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+  return v;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const status = searchParams.get('status') ?? 'all';
   const search = searchParams.get('search') ?? '';
+  const from = parseYyyyMmDd(searchParams.get('from'));
+  const to = parseYyyyMmDd(searchParams.get('to'));
   const page   = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
   const limit  = Math.min(100, parseInt(searchParams.get('limit') ?? '20', 10));
   const offset = (page - 1) * limit;
 
   try {
-    const { invoices, total } = await listInvoices({ status, search, limit, offset });
+    const { invoices, total } = await listInvoices({ status, search, from, to, limit, offset });
     return NextResponse.json({ invoices, total, page, limit });
   } catch (err) {
     console.error('[API/invoices GET]', err);
