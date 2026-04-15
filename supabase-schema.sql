@@ -65,9 +65,26 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   unit            TEXT,               -- EA, EA(kg), etc.
   price           NUMERIC(10,2),      -- unit price excluding GST
   amount_excl_gst NUMERIC(10,2),      -- qty * price
+  sort_order      INTEGER,            -- preserve OCR/original line order
   
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Additive: keep item order stable (safe for existing DBs)
+ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS sort_order INTEGER;
+CREATE INDEX IF NOT EXISTS idx_items_invoice_sort ON invoice_items(invoice_id, sort_order);
+
+-- Backfill sort_order for existing rows (created_at order per invoice)
+WITH ranked AS (
+  SELECT id,
+         ROW_NUMBER() OVER (PARTITION BY invoice_id ORDER BY created_at) AS rn
+  FROM invoice_items
+  WHERE sort_order IS NULL
+)
+UPDATE invoice_items ii
+SET sort_order = ranked.rn
+FROM ranked
+WHERE ii.id = ranked.id;
 
 -- ============================================================
 -- PHASE 1: Catalog normalization (additive)

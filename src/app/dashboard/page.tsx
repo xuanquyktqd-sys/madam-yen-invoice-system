@@ -1050,7 +1050,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-sm font-semibold text-slate-200">Mặt hàng (tuỳ chọn)</div>
                     <button
-                      onClick={() => setManualItems((p) => [...p, { product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }])}
+                      onClick={() => setManualItems((p) => [{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }, ...p])}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
                       + Thêm dòng
                     </button>
@@ -1470,7 +1470,7 @@ export default function DashboardPage() {
                             <div className="flex items-center justify-between">
                               <div className="text-sm font-semibold text-slate-200">Chỉnh mặt hàng</div>
                               <button
-                                onClick={() => setEditItems((p) => [...p, { product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }])}
+                                onClick={() => setEditItems((p) => [{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }, ...p])}
                                 className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
                                 + Thêm dòng
                               </button>

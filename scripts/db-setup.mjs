@@ -78,6 +78,7 @@ async function run() {
         unit            TEXT,
         price           NUMERIC(10,2),
         amount_excl_gst NUMERIC(10,2),
+        sort_order      INTEGER,
         created_at      TIMESTAMPTZ DEFAULT NOW()
       )`,
     },
@@ -85,7 +86,9 @@ async function run() {
     { name: 'INDEX: date',     sql: `CREATE INDEX IF NOT EXISTS idx_invoices_date     ON invoices(invoice_date)` },
     { name: 'INDEX: status',   sql: `CREATE INDEX IF NOT EXISTS idx_invoices_status   ON invoices(status)` },
     { name: 'INDEX: parent',   sql: `CREATE INDEX IF NOT EXISTS idx_invoices_parent_invoice_id ON invoices(parent_invoice_id)` },
+    { name: 'ALTER items ADD sort_order', sql: `ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS sort_order INTEGER` },
     { name: 'INDEX: items',    sql: `CREATE INDEX IF NOT EXISTS idx_items_invoice     ON invoice_items(invoice_id)` },
+    { name: 'INDEX: items.order', sql: `CREATE INDEX IF NOT EXISTS idx_items_invoice_sort ON invoice_items(invoice_id, sort_order)` },
 
     // ── Phase 1: Catalog normalization (additive) ─────────────────────────
     {
@@ -160,6 +163,21 @@ async function run() {
             FOREIGN KEY (standard_id) REFERENCES standards(id);
         END IF;
       END $$`,
+    },
+
+    // Backfill sort_order for existing rows (created_at order per invoice)
+    {
+      name: 'BACKFILL invoice_items.sort_order',
+      sql: `WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (PARTITION BY invoice_id ORDER BY created_at) AS rn
+        FROM invoice_items
+        WHERE sort_order IS NULL
+      )
+      UPDATE invoice_items ii
+      SET sort_order = ranked.rn
+      FROM ranked
+      WHERE ii.id = ranked.id`,
     },
     {
       name: 'CREATE FUNCTION my_normalize_code',

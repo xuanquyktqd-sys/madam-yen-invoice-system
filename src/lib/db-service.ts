@@ -32,6 +32,65 @@ function isMissingTableError(err: unknown): boolean {
   return !!e && e.code === '42P01';
 }
 
+function isMissingColumnError(err: unknown, column?: string): boolean {
+  const e = err as { code?: string; message?: string } | null;
+  // 42703 = undefined_column
+  if (!e || e.code !== '42703') return false;
+  if (!column) return true;
+  return (e.message ?? '').includes(column);
+}
+
+async function insertInvoiceItemRow(
+  client: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  row: {
+    invoice_id: string;
+    product_code: string | null;
+    description: string;
+    standard: string | null;
+    quantity: number | null;
+    unit: string | null;
+    price: number | null;
+    amount_excl_gst: number | null;
+    sort_order: number;
+  }
+) {
+  try {
+    await client.query(
+      `INSERT INTO invoice_items
+        (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        row.invoice_id,
+        row.product_code,
+        row.description,
+        row.standard,
+        row.quantity,
+        row.unit,
+        row.price,
+        row.amount_excl_gst,
+        row.sort_order,
+      ]
+    );
+  } catch (err) {
+    if (!isMissingColumnError(err, 'sort_order')) throw err;
+    await client.query(
+      `INSERT INTO invoice_items
+        (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        row.invoice_id,
+        row.product_code,
+        row.description,
+        row.standard,
+        row.quantity,
+        row.unit,
+        row.price,
+        row.amount_excl_gst,
+      ]
+    );
+  }
+}
+
 export type SaveResult = {
   success: boolean;
   invoiceId?: string;
@@ -119,7 +178,7 @@ export async function getInvoiceById(id: string): Promise<Record<string, unknown
              'unit', COALESCE(ii.unit, u.code),
              'price', ii.price,
              'amount_excl_gst', ii.amount_excl_gst
-           ) ORDER BY ii.created_at
+           ) ORDER BY ii.sort_order NULLS LAST, ii.created_at
          ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
        FROM invoices i
        LEFT JOIN vendors v ON v.id = i.vendor_id
@@ -135,6 +194,45 @@ export async function getInvoiceById(id: string): Promise<Record<string, unknown
     const row = res.rows[0] as Record<string, unknown> | undefined;
     return row ? normalizeInvoiceRow(row) : null;
   } catch (err) {
+    if (isMissingColumnError(err, 'sort_order')) {
+      const res = await pool.query(
+        `SELECT i.*,
+           i.vendor_id AS vendor_id,
+           v.name AS vendor_name_catalog,
+           v.gst_number AS vendor_gst_number_catalog,
+           v.address AS vendor_address_catalog,
+           json_agg(
+             json_build_object(
+               'id', ii.id,
+               'invoice_id', ii.invoice_id,
+               'product_id', ii.product_id,
+               'unit_id', ii.unit_id,
+               'standard_id', ii.standard_id,
+               'restaurant_product_id', rp.restaurant_product_id,
+               'product_code', COALESCE(ii.product_code, rp.vendor_product_code),
+               'description', COALESCE(ii.description, rp.name),
+               'standard', COALESCE(ii.standard, s.value),
+               'quantity', ii.quantity,
+               'unit', COALESCE(ii.unit, u.code),
+               'price', ii.price,
+               'amount_excl_gst', ii.amount_excl_gst
+             ) ORDER BY ii.created_at
+           ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+         FROM invoices i
+         LEFT JOIN vendors v ON v.id = i.vendor_id
+         LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+         LEFT JOIN restaurant_products rp ON rp.id = ii.product_id
+         LEFT JOIN units u ON u.id = ii.unit_id
+         LEFT JOIN standards s ON s.id = ii.standard_id
+         WHERE i.id = $1
+         GROUP BY i.id, v.id`,
+        [id]
+      );
+
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      return row ? normalizeInvoiceRow(row) : null;
+    }
+
     if (!isMissingTableError(err)) throw err;
 
     // Backward-compatible fallback (before catalog tables exist)
@@ -215,14 +313,19 @@ export async function saveInvoice(
 
     // Insert line items
     if (line_items?.length) {
-      for (const item of line_items) {
-        await client.query(
-          `INSERT INTO invoice_items
-            (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [invoiceId, item.product_code, item.description, item.standard,
-           item.quantity, item.unit, item.price, item.amount_excl_gst]
-        );
+      for (let i = 0; i < line_items.length; i++) {
+        const item = line_items[i];
+        await insertInvoiceItemRow(client, {
+          invoice_id: invoiceId,
+          product_code: item.product_code ?? null,
+          description: item.description,
+          standard: item.standard ?? null,
+          quantity: toNumberOrNull(item.quantity),
+          unit: item.unit ?? null,
+          price: toNumberOrNull(item.price),
+          amount_excl_gst: toNumberOrNull(item.amount_excl_gst),
+          sort_order: i + 1,
+        });
       }
       console.log(`[DB] ✅ ${line_items.length} items saved`);
     }
@@ -302,7 +405,8 @@ export async function createManualInvoice(input: ManualInvoiceInput): Promise<Sa
     const invoiceId: string = invRes.rows[0].id;
 
     if (invoiceItems.length) {
-      for (const item of invoiceItems) {
+      for (let i = 0; i < invoiceItems.length; i++) {
+        const item = invoiceItems[i];
         const description = item.description?.trim();
         if (!description) continue;
 
@@ -310,21 +414,17 @@ export async function createManualInvoice(input: ManualInvoiceInput): Promise<Sa
         const price = toNumberOrNull(item.price);
         const amount = quantity !== null && price !== null ? Math.round(quantity * price * 100) / 100 : toNumberOrNull(item.amount_excl_gst);
 
-        await client.query(
-          `INSERT INTO invoice_items
-            (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [
-            invoiceId,
-            item.product_code ?? null,
-            description,
-            item.standard ?? null,
-            quantity,
-            item.unit ?? null,
-            price,
-            amount,
-          ]
-        );
+        await insertInvoiceItemRow(client, {
+          invoice_id: invoiceId,
+          product_code: item.product_code ?? null,
+          description,
+          standard: item.standard ?? null,
+          quantity,
+          unit: item.unit ?? null,
+          price,
+          amount_excl_gst: amount,
+          sort_order: i + 1,
+        });
       }
     }
 
@@ -389,27 +489,24 @@ export async function patchInvoiceWithItems(
 
     if (Array.isArray(invoiceItems)) {
       await client.query(`DELETE FROM invoice_items WHERE invoice_id=$1`, [id]);
-      for (const item of invoiceItems) {
+      for (let i = 0; i < invoiceItems.length; i++) {
+        const item = invoiceItems[i];
         const description = item.description?.trim();
         if (!description) continue;
         const quantity = toNumberOrNull(item.quantity);
         const price = toNumberOrNull(item.price);
         const amount = quantity !== null && price !== null ? Math.round(quantity * price * 100) / 100 : toNumberOrNull(item.amount_excl_gst);
-        await client.query(
-          `INSERT INTO invoice_items
-            (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [
-            id,
-            item.product_code ?? null,
-            description,
-            item.standard ?? null,
-            quantity,
-            item.unit ?? null,
-            price,
-            amount,
-          ]
-        );
+        await insertInvoiceItemRow(client, {
+          invoice_id: id,
+          product_code: item.product_code ?? null,
+          description,
+          standard: item.standard ?? null,
+          quantity,
+          unit: item.unit ?? null,
+          price,
+          amount_excl_gst: amount,
+          sort_order: i + 1,
+        });
       }
     }
 
@@ -505,7 +602,7 @@ export async function listInvoices(opts: {
              'unit', COALESCE(ii.unit, u.code),
              'price', ii.price,
              'amount_excl_gst', ii.amount_excl_gst
-           ) ORDER BY ii.created_at
+           ) ORDER BY ii.sort_order NULLS LAST, ii.created_at
          ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
        FROM invoices i
        LEFT JOIN vendors v ON v.id = i.vendor_id
@@ -520,24 +617,59 @@ export async function listInvoices(opts: {
       [...params, limit, offset]
     );
   } catch (err) {
-    if (!isMissingTableError(err)) throw err;
-    dataRes = await pool.query(
-      `SELECT i.*,
-         json_agg(
-           json_build_object(
-             'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
-             'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
-             'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
-           ) ORDER BY ii.created_at
-         ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
-       FROM invoices i
-       LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-       ${where}
-       GROUP BY i.id
-       ORDER BY i.invoice_date DESC, i.created_at DESC
-       LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, limit, offset]
-    );
+    if (isMissingColumnError(err, 'sort_order')) {
+      dataRes = await pool.query(
+        `SELECT i.*,
+           i.vendor_id AS vendor_id,
+           v.name AS vendor_name_catalog,
+           json_agg(
+             json_build_object(
+               'id', ii.id,
+               'product_id', ii.product_id,
+               'unit_id', ii.unit_id,
+               'standard_id', ii.standard_id,
+               'restaurant_product_id', rp.restaurant_product_id,
+               'product_code', COALESCE(ii.product_code, rp.vendor_product_code),
+               'description', COALESCE(ii.description, rp.name),
+               'standard', COALESCE(ii.standard, s.value),
+               'quantity', ii.quantity,
+               'unit', COALESCE(ii.unit, u.code),
+               'price', ii.price,
+               'amount_excl_gst', ii.amount_excl_gst
+             ) ORDER BY ii.created_at
+           ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+         FROM invoices i
+         LEFT JOIN vendors v ON v.id = i.vendor_id
+         LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+         LEFT JOIN restaurant_products rp ON rp.id = ii.product_id
+         LEFT JOIN units u ON u.id = ii.unit_id
+         LEFT JOIN standards s ON s.id = ii.standard_id
+         ${where}
+         GROUP BY i.id, v.id
+         ORDER BY i.invoice_date DESC, i.created_at DESC
+         LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, offset]
+      );
+    } else {
+      if (!isMissingTableError(err)) throw err;
+      dataRes = await pool.query(
+        `SELECT i.*,
+           json_agg(
+             json_build_object(
+               'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
+               'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
+               'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
+             ) ORDER BY ii.created_at
+           ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+         FROM invoices i
+         LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+         ${where}
+         GROUP BY i.id
+         ORDER BY i.invoice_date DESC, i.created_at DESC
+         LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, offset]
+      );
+    }
   }
 
   // node-postgres returns NUMERIC as string by default; normalize to numbers for the UI.
@@ -711,22 +843,19 @@ export async function createCreditNoteFromInvoice(input: CreateCreditNoteInput):
 
     const newInvoiceId = String(invIns.rows[0].id);
 
-    for (const item of normalizedItems) {
-      await client.query(
-        `INSERT INTO invoice_items
-          (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [
-          newInvoiceId,
-          item.product_code,
-          item.description,
-          item.standard,
-          item.quantity,
-          item.unit,
-          item.price,
-          item.amount_excl_gst,
-        ]
-      );
+    for (let i = 0; i < normalizedItems.length; i++) {
+      const item = normalizedItems[i];
+      await insertInvoiceItemRow(client, {
+        invoice_id: newInvoiceId,
+        product_code: item.product_code,
+        description: item.description,
+        standard: item.standard,
+        quantity: toNumberOrNull(item.quantity),
+        unit: item.unit,
+        price: toNumberOrNull(item.price),
+        amount_excl_gst: toNumberOrNull(item.amount_excl_gst),
+        sort_order: i + 1,
+      });
     }
 
     await client.query('COMMIT');

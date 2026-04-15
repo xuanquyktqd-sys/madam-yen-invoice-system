@@ -54,14 +54,19 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   unit            TEXT,
   price           NUMERIC(10,2),
   amount_excl_gst NUMERIC(10,2),
+  sort_order      INTEGER,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Additive column: preserve line order (safe if table already exists)
+ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS sort_order INTEGER;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_invoices_vendor ON invoices(vendor_name);
 CREATE INDEX IF NOT EXISTS idx_invoices_date   ON invoices(invoice_date);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_items_invoice   ON invoice_items(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_items_invoice_sort ON invoice_items(invoice_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_invoices_parent_invoice_id ON invoices(parent_invoice_id);
 
 -- ============================================================
@@ -108,6 +113,7 @@ ALTER TABLE invoices      ADD COLUMN IF NOT EXISTS vendor_id UUID;
 ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS product_id UUID;
 ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS unit_id UUID;
 ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS standard_id UUID;
+ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS sort_order INTEGER;
 
 DO $$
 BEGIN
@@ -132,6 +138,18 @@ BEGIN
       FOREIGN KEY (standard_id) REFERENCES standards(id);
   END IF;
 END $$;
+
+-- Backfill sort_order for existing rows (created_at order per invoice)
+WITH ranked AS (
+  SELECT id,
+         ROW_NUMBER() OVER (PARTITION BY invoice_id ORDER BY created_at) AS rn
+  FROM invoice_items
+  WHERE sort_order IS NULL
+)
+UPDATE invoice_items ii
+SET sort_order = ranked.rn
+FROM ranked
+WHERE ii.id = ranked.id;
 
 CREATE OR REPLACE FUNCTION my_normalize_code(input TEXT)
 RETURNS TEXT AS $$
