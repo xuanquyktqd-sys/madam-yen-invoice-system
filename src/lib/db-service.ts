@@ -790,6 +790,17 @@ export async function createCreditNoteFromInvoice(input: CreateCreditNoteInput):
     const srcInvoice = srcInvRes.rows[0] as Record<string, unknown> | undefined;
     if (!srcInvoice) return { success: false, error: 'Source invoice not found' };
 
+    const srcType = String(srcInvoice.type ?? '');
+    const srcTotal = toNumberOrNull(srcInvoice.total_amount) ?? 0;
+    const srcParent = srcInvoice.parent_invoice_id as string | null | undefined;
+    const srcIsCredit =
+      srcType.toLowerCase().includes('credit') ||
+      srcTotal < 0 ||
+      !!srcParent;
+    if (srcIsCredit) {
+      return { success: false, error: 'Cannot create a Credit Note from an existing Credit Note' };
+    }
+
     const ids = input.items.map((it) => it.source_item_id).filter(Boolean);
     const srcItemsRes = await client.query(
       `SELECT * FROM invoice_items WHERE invoice_id=$1 AND id = ANY($2::uuid[])`,

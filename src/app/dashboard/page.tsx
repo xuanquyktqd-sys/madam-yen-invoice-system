@@ -1314,7 +1314,7 @@ export default function DashboardPage() {
                     <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {selectedInvoice.invoice_date}</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    {!editMode && (
+                    {!editMode && !isSelectedCreditNote && (
                       <button
                         onClick={openCreditNote}
                         className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-sm font-semibold transition-all">
