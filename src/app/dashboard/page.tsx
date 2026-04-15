@@ -1487,9 +1487,9 @@ export default function DashboardPage() {
                             </div>
                             <div className="space-y-2">
                               {editItems.map((it, idx) => (
-                                <div key={idx} className="bg-slate-900 border border-slate-700 rounded-xl p-3">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="flex-1 min-w-0">
+                                <div key={idx} className="bg-slate-800 rounded-xl p-3 text-sm">
+                                  <div className="flex justify-between gap-2 mb-1">
+                                    <span className="text-white font-medium leading-tight flex-1">
                                       <input
                                         value={it.description}
                                         list="edit-product-options"
@@ -1510,41 +1510,58 @@ export default function DashboardPage() {
                                             });
                                           });
                                         }}
-                                        className="w-full bg-transparent border border-slate-800 rounded-lg px-2 py-2 text-sm text-slate-100"
+                                        className="w-full bg-transparent border-0 p-0 m-0 text-white font-medium leading-tight focus:outline-none"
                                         placeholder="Tên sản phẩm"
                                       />
-                                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+                                      {it.standard ? ` · ${it.standard}` : ''}
+                                    </span>
+                                    <span className="text-emerald-400 font-mono font-bold whitespace-nowrap">
+                                      {formatNZD(Number(it.amount_excl_gst || '0'))}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex gap-4 text-xs text-slate-400 items-center">
+                                    {it.product_code && (
+                                      <span className="font-mono">
                                         <input
                                           value={it.product_code}
                                           onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
-                                          className="w-28 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
+                                          className="w-28 bg-transparent border-0 p-0 m-0 text-slate-400 font-mono focus:outline-none"
                                           placeholder="Code"
                                         />
-                                        <div className="flex items-center gap-2">
-                                          <input
-                                            value={it.quantity}
-                                            onChange={(e) => {
-                                              const quantity = e.target.value;
-                                              setEditItems((p) => p.map((x, i) => {
-                                                if (i !== idx) return x;
-                                                const next: typeof x = { ...x, quantity };
-                                                const q = toNumberOrNullInput(quantity) ?? 0;
-                                                const pr = toNumberOrNullInput(next.price) ?? 0;
-                                                next.amount_excl_gst = fmt2(q * pr);
-                                                return next;
-                                              }));
-                                            }}
-                                            className="w-20 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
-                                            placeholder="Qty"
-                                          />
-                                          <input
-                                            list="unit-options"
-                                            value={it.unit}
-                                            onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
-                                            className="w-20 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
-                                            placeholder="Unit"
-                                          />
-                                        </div>
+                                      </span>
+                                    )}
+                                    <span>
+                                      SL:{' '}
+                                      <span className="text-slate-200">
+                                        <input
+                                          value={it.quantity}
+                                          onChange={(e) => {
+                                            const quantity = e.target.value;
+                                            setEditItems((p) => p.map((x, i) => {
+                                              if (i !== idx) return x;
+                                              const next: typeof x = { ...x, quantity };
+                                              const q = toNumberOrNullInput(quantity) ?? 0;
+                                              const pr = toNumberOrNullInput(next.price) ?? 0;
+                                              next.amount_excl_gst = fmt2(q * pr);
+                                              return next;
+                                            }));
+                                          }}
+                                          className="w-16 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
+                                          placeholder="0"
+                                        />{' '}
+                                        <input
+                                          list="unit-options"
+                                          value={it.unit}
+                                          onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
+                                          className="w-14 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
+                                          placeholder="EA"
+                                        />
+                                      </span>
+                                    </span>
+                                    <span>
+                                      Đơn giá:{' '}
+                                      <span className="text-slate-200 font-mono">
                                         <input
                                           value={it.price}
                                           onChange={(e) => {
@@ -1558,27 +1575,19 @@ export default function DashboardPage() {
                                               return next;
                                             }));
                                           }}
-                                          className="w-24 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
-                                          placeholder="Price"
+                                          className="w-20 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
+                                          placeholder="0.00"
                                         />
-                                      </div>
-                                    </div>
+                                      </span>
+                                    </span>
 
-                                    <div className="flex flex-col items-end gap-2">
-                                      <div
-                                        className="bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 font-mono select-none min-w-[92px] text-right"
-                                        title="Tự tính (không nhập tay)"
-                                      >
-                                        {it.amount_excl_gst || '0.00'}
-                                      </div>
-                                      <button
-                                        onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
-                                        className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:bg-red-600 hover:text-white"
-                                        title="Xoá dòng"
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
+                                    <button
+                                      onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
+                                      className="ml-auto px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:bg-red-600 hover:text-white"
+                                      title="Xoá dòng"
+                                    >
+                                      ✕
+                                    </button>
                                   </div>
                                 </div>
                               ))}
