@@ -680,7 +680,7 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* ── Credit Note Modal ───────────────────────────────────────────── */}
         {creditOpen && selectedInvoice && (
-          <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 rounded-2xl w-full max-w-4xl border border-slate-700 shadow-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
                 <div>
