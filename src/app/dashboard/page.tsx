@@ -41,6 +41,34 @@ type FilterStatus = 'all' | 'pending_review' | 'approved' | 'rejected';
 const formatNZD = (n: number) =>
   new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(n);
 
+const toNumberOrNullInput = (value: string) => {
+  const v = value.trim();
+  if (!v) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const fmt2 = (n: number) => round2(n).toFixed(2);
+
+const calcTotalsFromRows = (
+  rows: Array<{ amount_excl_gst: string; quantity: string; price: string }>,
+  freightStr: string
+) => {
+  const freight = toNumberOrNullInput(freightStr) ?? 0;
+  const subAbs = rows.reduce((sum, r) => {
+    const amt = toNumberOrNullInput(r.amount_excl_gst);
+    if (amt !== null) return sum + amt;
+    const q = toNumberOrNullInput(r.quantity) ?? 0;
+    const p = toNumberOrNullInput(r.price) ?? 0;
+    return sum + round2(q * p);
+  }, 0);
+  const subTotal = round2(subAbs);
+  const gst = round2(subTotal * 0.15);
+  const total = round2(subTotal + freight + gst);
+  return { sub_total: fmt2(subTotal), gst_amount: fmt2(gst), total_amount: fmt2(total) };
+};
+
 const statusConfig = {
   pending_review: { label: 'Chờ duyệt', bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-400' },
   approved: { label: 'Đã duyệt', bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-400' },
@@ -155,12 +183,6 @@ export default function DashboardPage() {
   }>>([]);
 
   const toDateInput = (value: string) => (value || '').slice(0, 10);
-  const toNumberOrNull = (value: string) => {
-    const v = value.trim();
-    if (!v) return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
 
   // ── Fetch invoices ────────────────────────────────────────────────────────
   const fetchInvoices = useCallback(async () => {
@@ -356,19 +378,19 @@ export default function DashboardPage() {
       invoice_number: manualForm.invoice_number.trim() || null,
       invoice_date: manualForm.invoice_date,
       category: manualForm.category.trim() || null,
-      sub_total: toNumberOrNull(manualForm.sub_total),
-      freight: toNumberOrNull(manualForm.freight),
-      gst_amount: toNumberOrNull(manualForm.gst_amount),
-      total_amount: toNumberOrNull(manualForm.total_amount),
+      sub_total: toNumberOrNullInput(manualForm.sub_total),
+      freight: toNumberOrNullInput(manualForm.freight),
+      gst_amount: toNumberOrNullInput(manualForm.gst_amount),
+      total_amount: toNumberOrNullInput(manualForm.total_amount),
       invoice_items: manualItems
         .map((it) => ({
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
-          quantity: toNumberOrNull(it.quantity),
+          quantity: toNumberOrNullInput(it.quantity),
           standard: it.standard.trim() || null,
           unit: it.unit.trim() || null,
-          price: toNumberOrNull(it.price),
-          amount_excl_gst: toNumberOrNull(it.amount_excl_gst),
+          price: toNumberOrNullInput(it.price),
+          amount_excl_gst: toNumberOrNullInput(it.amount_excl_gst),
         }))
         .filter((it) => it.description),
     };
@@ -429,6 +451,15 @@ export default function DashboardPage() {
     );
     setEditMode(true);
   };
+
+  useEffect(() => {
+    if (!editMode) return;
+    const totals = calcTotalsFromRows(editItems, editForm.freight);
+    setEditForm((p) => {
+      if (p.sub_total === totals.sub_total && p.gst_amount === totals.gst_amount && p.total_amount === totals.total_amount) return p;
+      return { ...p, ...totals };
+    });
+  }, [editMode, editItems, editForm.freight]);
 
   const cancelEdit = () => {
     setEditMode(false);
@@ -498,6 +529,16 @@ export default function DashboardPage() {
     }
   };
 
+  const creditSelectedRows = creditRows.filter((r) => r.selected);
+  const creditTotals = (() => {
+    const t = calcTotalsFromRows(creditSelectedRows, '0');
+    // Credit notes are stored as negative totals on the server; show negative totals in UI too.
+    const sub = -Math.abs(Number(t.sub_total));
+    const gst = -Math.abs(Number(t.gst_amount));
+    const total = -Math.abs(Number(t.total_amount));
+    return { sub_total: fmt2(sub), gst_amount: fmt2(gst), total_amount: fmt2(total) };
+  })();
+
   const saveEdit = async () => {
     if (!selectedInvoice) return;
     if (!editForm.vendor_name.trim() || !editForm.invoice_date.trim() || !editForm.total_amount.trim()) {
@@ -512,19 +553,19 @@ export default function DashboardPage() {
       invoice_number: editForm.invoice_number.trim() || null,
       invoice_date: editForm.invoice_date,
       category: editForm.category.trim() || null,
-      sub_total: toNumberOrNull(editForm.sub_total),
-      freight: toNumberOrNull(editForm.freight),
-      gst_amount: toNumberOrNull(editForm.gst_amount),
-      total_amount: toNumberOrNull(editForm.total_amount),
+      sub_total: toNumberOrNullInput(editForm.sub_total),
+      freight: toNumberOrNullInput(editForm.freight),
+      gst_amount: toNumberOrNullInput(editForm.gst_amount),
+      total_amount: toNumberOrNullInput(editForm.total_amount),
       invoice_items: editItems
         .map((it) => ({
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
-          quantity: toNumberOrNull(it.quantity),
+          quantity: toNumberOrNullInput(it.quantity),
           standard: it.standard.trim() || null,
           unit: it.unit.trim() || null,
-          price: toNumberOrNull(it.price),
-          amount_excl_gst: toNumberOrNull(it.amount_excl_gst),
+          price: toNumberOrNullInput(it.price),
+          amount_excl_gst: toNumberOrNullInput(it.amount_excl_gst),
         }))
         .filter((it) => it.description),
     };
@@ -752,7 +793,19 @@ export default function DashboardPage() {
                               <input
                                 inputMode="decimal"
                                 value={r.quantity}
-                                onChange={(e) => setCreditRows((p) => p.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))}
+                                onChange={(e) => {
+                                  const quantity = e.target.value;
+                                  setCreditRows((p) => p.map((x, i) => {
+                                    if (i !== idx) return x;
+                                    const next = { ...x, quantity };
+                                    if (!next.amount_excl_gst.trim()) {
+                                      const q = toNumberOrNullInput(quantity) ?? 0;
+                                      const pr = toNumberOrNullInput(next.price) ?? 0;
+                                      next.amount_excl_gst = fmt2(q * pr);
+                                    }
+                                    return next;
+                                  }));
+                                }}
                                 className="w-24 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 font-mono"
                                 placeholder="0"
                               />
@@ -761,7 +814,19 @@ export default function DashboardPage() {
                               <input
                                 inputMode="decimal"
                                 value={r.price}
-                                onChange={(e) => setCreditRows((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                                onChange={(e) => {
+                                  const price = e.target.value;
+                                  setCreditRows((p) => p.map((x, i) => {
+                                    if (i !== idx) return x;
+                                    const next = { ...x, price };
+                                    if (!next.amount_excl_gst.trim()) {
+                                      const q = toNumberOrNullInput(next.quantity) ?? 0;
+                                      const pr = toNumberOrNullInput(price) ?? 0;
+                                      next.amount_excl_gst = fmt2(q * pr);
+                                    }
+                                    return next;
+                                  }));
+                                }}
                                 className="w-28 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 font-mono"
                                 placeholder="0.00"
                               />
@@ -779,6 +844,21 @@ export default function DashboardPage() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800 rounded-xl p-4 text-sm">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Subtotal</span>
+                    <span className="font-mono">{formatNZD(Number(creditTotals.sub_total))}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-300 mt-1">
+                    <span>GST (15%)</span>
+                    <span className="font-mono">{formatNZD(Number(creditTotals.gst_amount))}</span>
+                  </div>
+                  <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
+                    <span>TOTAL (NZD)</span>
+                    <span className="font-mono text-emerald-400">{formatNZD(Number(creditTotals.total_amount))}</span>
                   </div>
                 </div>
 
@@ -1346,7 +1426,19 @@ export default function DashboardPage() {
                                   />
                                   <input
                                     value={it.quantity}
-                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))}
+                                    onChange={(e) => {
+                                      const quantity = e.target.value;
+                                      setEditItems((p) => p.map((x, i) => {
+                                        if (i !== idx) return x;
+                                        const next: typeof x = { ...x, quantity };
+                                        if (!next.amount_excl_gst.trim()) {
+                                          const q = toNumberOrNullInput(quantity) ?? 0;
+                                          const pr = toNumberOrNullInput(next.price) ?? 0;
+                                          next.amount_excl_gst = fmt2(q * pr);
+                                        }
+                                        return next;
+                                      }));
+                                    }}
                                     className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
                                     placeholder="Qty"
                                   />
@@ -1359,7 +1451,19 @@ export default function DashboardPage() {
                                   />
                                   <input
                                     value={it.price}
-                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                                    onChange={(e) => {
+                                      const price = e.target.value;
+                                      setEditItems((p) => p.map((x, i) => {
+                                        if (i !== idx) return x;
+                                        const next: typeof x = { ...x, price };
+                                        if (!next.amount_excl_gst.trim()) {
+                                          const q = toNumberOrNullInput(next.quantity) ?? 0;
+                                          const pr = toNumberOrNullInput(price) ?? 0;
+                                          next.amount_excl_gst = fmt2(q * pr);
+                                        }
+                                        return next;
+                                      }));
+                                    }}
                                     className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
                                     placeholder="Price"
                                   />
@@ -1419,6 +1523,7 @@ export default function DashboardPage() {
                                   inputMode="decimal"
                                   value={editForm[key]}
                                   onChange={(e) => setEditForm((p) => ({ ...p, [key]: e.target.value }))}
+                                  readOnly={key !== 'freight'}
                                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
                                   placeholder="0.00"
                                 />
