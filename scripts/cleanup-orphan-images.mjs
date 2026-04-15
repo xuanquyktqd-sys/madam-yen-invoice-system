@@ -47,48 +47,44 @@ function parseArgs(argv) {
   return args;
 }
 
-function tryGetStoragePathFromPublicUrl(publicUrl) {
+function tryGetStoragePathFromInvoiceImageRef(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+
+  // Support storing the path directly (recommended for DB, e.g. "2024/09/foo.jpg")
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
+    return decodeURIComponent(raw.replace(/^\/+/, ''));
+  }
+
   try {
-    const url = new URL(publicUrl);
-    const prefix = `/storage/v1/object/public/${BUCKET}/`;
-    if (!url.pathname.startsWith(prefix)) return null;
-    return decodeURIComponent(url.pathname.slice(prefix.length));
+    const url = new URL(raw);
+    const publicPrefix = `/storage/v1/object/public/${BUCKET}/`;
+    const signedPrefix = `/storage/v1/object/sign/${BUCKET}/`;
+
+    if (url.pathname.startsWith(publicPrefix)) {
+      return decodeURIComponent(url.pathname.slice(publicPrefix.length));
+    }
+    if (url.pathname.startsWith(signedPrefix)) {
+      return decodeURIComponent(url.pathname.slice(signedPrefix.length));
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-async function listAllFiles(storage, prefix = '') {
-  const files = [];
-  let offset = 0;
-  const limit = 1000;
-
-  // Supabase Storage list is paginated with offset/limit.
-  while (true) {
-    const { data, error } = await storage.from(BUCKET).list(prefix, {
-      limit,
-      offset,
-      sortBy: { column: 'name', order: 'asc' },
-    });
-    if (error) throw new Error(`Storage list failed at "${prefix}": ${error.message}`);
-    if (!data || data.length === 0) break;
-
-    for (const entry of data) {
-      // Heuristic: folders have null metadata
-      if (!entry.metadata) {
-        const nextPrefix = prefix ? `${prefix}/${entry.name}` : entry.name;
-        const nested = await listAllFiles(storage, nextPrefix);
-        files.push(...nested);
-      } else {
-        files.push(prefix ? `${prefix}/${entry.name}` : entry.name);
-      }
-    }
-
-    if (data.length < limit) break;
-    offset += limit;
-  }
-
-  return files;
+async function fetchAllStorageObjects(client) {
+  const res = await client.query(
+    `SELECT name, updated_at
+     FROM storage.objects
+     WHERE bucket_id = $1
+     ORDER BY name`,
+    [BUCKET]
+  );
+  return res.rows.map((r) => ({
+    name: String(r.name),
+    updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : null,
+  }));
 }
 
 function chunk(arr, size) {
@@ -131,23 +127,27 @@ async function run() {
 
   const referenced = new Set();
   for (const r of refRes.rows) {
-    const p = tryGetStoragePathFromPublicUrl(String(r.image_url));
+    const p = tryGetStoragePathFromInvoiceImageRef(r.image_url);
     if (p) referenced.add(p);
   }
   console.log(`📌 Referenced images in DB: ${referenced.size}`);
 
-  console.log('📦 Listing storage files...');
-  const allFiles = await listAllFiles(supabaseAdmin.storage);
-  console.log(`   Total files in bucket: ${allFiles.length}`);
+  console.log('📦 Fetching storage objects from DB...');
+  const allObjects = await fetchAllStorageObjects(client);
+  console.log(`   Total objects in bucket: ${allObjects.length}`);
 
   const olderThanMs =
     args.olderThanDays === null ? null : args.olderThanDays * 24 * 60 * 60 * 1000;
   const cutoff = olderThanMs === null ? null : Date.now() - olderThanMs;
 
   const orphans = [];
-  for (const path of allFiles) {
-    if (referenced.has(path)) continue;
-    orphans.push(path);
+  for (const obj of allObjects) {
+    if (referenced.has(obj.name)) continue;
+    if (cutoff !== null) {
+      // When updated_at is missing, treat as eligible (conservative for cleanup).
+      if (obj.updatedAt !== null && obj.updatedAt > cutoff) continue;
+    }
+    orphans.push(obj.name);
   }
 
   console.log(`🧾 Orphan candidates: ${orphans.length}`);
@@ -157,31 +157,10 @@ async function run() {
     return;
   }
 
-  // Optionally filter by age (requires a per-file HEAD; keep simple by skipping unless requested)
-  let finalOrphans = orphans;
-  if (cutoff !== null) {
-    console.log('⏳ Checking file ages (this may take a while)...');
-    const keep = [];
-    for (const p of orphans) {
-      // We can’t read storage.objects directly (protected), so we rely on Storage API metadata
-      const { data, error } = await supabaseAdmin.storage.from(BUCKET).list(
-        p.includes('/') ? p.split('/').slice(0, -1).join('/') : '',
-        { limit: 2000 }
-      );
-      if (error) continue;
-      const name = p.split('/').pop();
-      const entry = (data ?? []).find((x) => x.name === name);
-      const updatedAt = entry?.updated_at ? new Date(entry.updated_at).getTime() : null;
-      if (updatedAt !== null && updatedAt <= cutoff) keep.push(p);
-    }
-    finalOrphans = keep;
-    console.log(`🧾 Orphans after age filter: ${finalOrphans.length}`);
-  }
-
   console.log('');
   console.log('Sample (first 20):');
-  for (const p of finalOrphans.slice(0, 20)) console.log(` - ${p}`);
-  if (finalOrphans.length > 20) console.log(` - ... (${finalOrphans.length - 20} more)`);
+  for (const p of orphans.slice(0, 20)) console.log(` - ${p}`);
+  if (orphans.length > 20) console.log(` - ... (${orphans.length - 20} more)`);
   console.log('');
 
   if (!args.yes) {
@@ -192,11 +171,11 @@ async function run() {
 
   console.log('🗑️  Deleting...');
   let deleted = 0;
-  for (const batch of chunk(finalOrphans, 100)) {
+  for (const batch of chunk(orphans, 100)) {
     const { error } = await supabaseAdmin.storage.from(BUCKET).remove(batch);
     if (error) throw new Error(`Storage remove failed: ${error.message}`);
     deleted += batch.length;
-    console.log(`   ✅ Deleted ${deleted}/${finalOrphans.length}`);
+    console.log(`   ✅ Deleted ${deleted}/${orphans.length}`);
   }
 
   await client.end();
@@ -207,4 +186,3 @@ run().catch((err) => {
   console.error('❌', err.message);
   process.exit(1);
 });
-
