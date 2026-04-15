@@ -79,6 +79,13 @@ export async function POST(request: NextRequest) {
           headers: { 'Retry-After': '15' },
         });
       }
+      if (msg === 'OCR_OUTPUT_INVALID') {
+        return NextResponse.json({
+          error: 'OCR trả về dữ liệu không đúng định dạng (không phải JSON). Vui lòng thử lại (có thể đổi ảnh rõ hơn).',
+          step: 'ocr',
+          retryable: true,
+        }, { status: 502 });
+      }
       return NextResponse.json({
         error: `OCR thất bại: ${msg}`,
         step: 'ocr',

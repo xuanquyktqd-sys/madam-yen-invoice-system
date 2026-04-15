@@ -141,9 +141,31 @@ async function callGemini(imageBuffer: Buffer, modelName: string): Promise<Invoi
   const text = result.response.text().trim();
 
   // Strip markdown code fences if Gemini adds them despite instructions
-  const jsonText = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+  const cleaned = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
 
-  const parsed: InvoiceData = JSON.parse(jsonText);
+  const tryParse = (input: string): InvoiceData => JSON.parse(input) as InvoiceData;
+
+  let parsed: InvoiceData | null = null;
+  try {
+    parsed = tryParse(cleaned);
+  } catch {
+    // Try to salvage when Gemini wraps JSON with extra text (or returns a plain error string)
+    const first = cleaned.indexOf('{');
+    const last = cleaned.lastIndexOf('}');
+    if (first >= 0 && last > first) {
+      const sliced = cleaned.slice(first, last + 1);
+      try {
+        parsed = tryParse(sliced);
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  if (!parsed) {
+    // Mark as retryable upstream (we can hit a different model or retry)
+    throw new Error('OCR_BAD_JSON');
+  }
 
   // Validate financials
   parsed.totals = validateFinancials(parsed.totals);
@@ -196,6 +218,8 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
     return (
       msg.includes('high demand') ||
       msg.includes('Service Unavailable') ||
+      msg.includes('OCR_BAD_JSON') ||
+      msg.includes('Unexpected token') ||
       msg.includes('ECONNRESET') ||
       msg.includes('ETIMEDOUT') ||
       msg.includes('fetch failed')
@@ -237,6 +261,9 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
       const status = getHttpStatus(fallbackError);
       if (status === 503 || msg.includes('high demand')) {
         throw new Error('MODEL_HIGH_DEMAND');
+      }
+      if (msg.includes('OCR_BAD_JSON') || msg.includes('Unexpected token')) {
+        throw new Error('OCR_OUTPUT_INVALID');
       }
       throw new Error(`OCR failed: ${msg}`);
     }

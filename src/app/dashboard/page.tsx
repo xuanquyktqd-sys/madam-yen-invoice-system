@@ -78,6 +78,15 @@ const statusConfig = {
   rejected: { label: 'Từ chối', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-400' },
 };
 
+const safeReadJson = async (res: Response): Promise<{ json: unknown; text: string }> => {
+  const text = await res.text();
+  try {
+    return { json: JSON.parse(text), text };
+  } catch {
+    return { json: null, text };
+  }
+};
+
 // ─── Dashboard Page ──────────────────────────────────────────────────────────
 export default function DashboardPage() {
   type MoneyFieldKey = 'sub_total' | 'freight' | 'gst_amount' | 'total_amount';
@@ -336,16 +345,16 @@ export default function DashboardPage() {
 
       setProcessingMsg('Đang chạy OCR (Gemini, tự động retry)...');
       const res = await fetch('/api/process', { method: 'POST', body: fd });
-      const json = await res.json();
+      const { json, text } = await safeReadJson(res);
 
       if (res.status === 409) {
-        showToast(`⚠️ Hóa đơn trùng lặp! ${json.warning}`, 'warn');
+        showToast(`⚠️ Hóa đơn trùng lặp! ${json?.warning ?? ''}`.trim(), 'warn');
         resetUpload();
         return;
       }
 
       if (!res.ok) {
-        const e = json.error ?? 'Lỗi không xác định';
+        const e = json?.error ?? text ?? 'Lỗi không xác định';
         if (res.status === 503) {
           throw new Error(`${e} (bấm Thử lại)`);
         }
@@ -353,7 +362,7 @@ export default function DashboardPage() {
       }
 
       setProcessingMsg('Lưu vào database...');
-      showToast(`✅ Xử lý thành công: ${json.data?.invoice_metadata?.vendor_name}`, 'success');
+      showToast(`✅ Xử lý thành công: ${json?.data?.invoice_metadata?.vendor_name ?? ''}`.trim(), 'success');
       setUploadStep('done');
       await fetchInvoices();
       setTimeout(() => resetUpload(), 2000);
