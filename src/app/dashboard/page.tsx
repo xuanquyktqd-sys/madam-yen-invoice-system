@@ -443,7 +443,7 @@ export default function DashboardPage() {
       .filter((it) => !!it.id)
       .map((it) => ({
         source_item_id: String(it.id),
-        selected: true,
+        selected: false,
         description: it.description ?? '',
         product_code: it.product_code ?? '',
         standard: it.standard ?? '',
