@@ -33,6 +33,31 @@ export type SaveResult = {
   error?: string;
 };
 
+export type ManualInvoiceItemInput = {
+  product_code?: string | null;
+  description: string;
+  standard?: string | null;
+  quantity?: number | string | null;
+  unit?: string | null;
+  price?: number | string | null;
+  amount_excl_gst?: number | string | null;
+};
+
+export type ManualInvoiceInput = {
+  vendor_name: string;
+  vendor_gst_number?: string | null;
+  invoice_number?: string | null;
+  invoice_date: string; // YYYY-MM-DD
+  category?: string | null;
+  sub_total?: number | string | null;
+  freight?: number | string | null;
+  gst_amount?: number | string | null;
+  total_amount: number | string;
+  status?: 'pending_review' | 'approved' | 'rejected';
+  invoice_items?: ManualInvoiceItemInput[];
+  image_url?: string | null;
+};
+
 // ── De-duplication ─────────────────────────────────────────────────────────
 async function checkDuplicate(
   vendorName: string,
@@ -44,6 +69,46 @@ async function checkDuplicate(
     [vendorName, invoiceDate, totalAmount]
   );
   return res.rows[0]?.id ?? null;
+}
+
+function normalizeInvoiceRow(row: Record<string, unknown>): Record<string, unknown> {
+  const r: Record<string, unknown> = { ...row };
+  r.sub_total = toNumberOrNull(r.sub_total) ?? 0;
+  r.freight = toNumberOrNull(r.freight) ?? 0;
+  r.gst_amount = toNumberOrNull(r.gst_amount) ?? 0;
+  r.total_amount = toNumberOrNull(r.total_amount) ?? 0;
+
+  if (Array.isArray(r.invoice_items)) {
+    r.invoice_items = (r.invoice_items as Record<string, unknown>[]).map((it) => ({
+      ...it,
+      quantity: toNumberOrNull(it.quantity) ?? 0,
+      price: toNumberOrNull(it.price) ?? 0,
+      amount_excl_gst: toNumberOrNull(it.amount_excl_gst) ?? 0,
+    }));
+  }
+
+  return r;
+}
+
+export async function getInvoiceById(id: string): Promise<Record<string, unknown> | null> {
+  const res = await pool.query(
+    `SELECT i.*,
+       json_agg(
+         json_build_object(
+           'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
+           'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
+           'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
+         ) ORDER BY ii.created_at
+       ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+     FROM invoices i
+     LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+     WHERE i.id = $1
+     GROUP BY i.id`,
+    [id]
+  );
+
+  const row = res.rows[0] as Record<string, unknown> | undefined;
+  return row ? normalizeInvoiceRow(row) : null;
 }
 
 // ── Save invoice + items ────────────────────────────────────────────────────
@@ -127,6 +192,155 @@ export async function saveInvoice(
   }
 }
 
+// ── Create invoice manually (optional items) ───────────────────────────────
+export async function createManualInvoice(input: ManualInvoiceInput): Promise<SaveResult> {
+  const client = await pool.connect();
+
+  try {
+    const vendorName = input.vendor_name?.trim();
+    if (!vendorName) return { success: false, error: 'vendor_name is required' };
+
+    const invoiceDate = input.invoice_date;
+    if (!invoiceDate) return { success: false, error: 'invoice_date is required' };
+
+    const totalAmount = toNumberOrNull(input.total_amount);
+    if (totalAmount === null) return { success: false, error: 'total_amount is required' };
+
+    const existingId = await checkDuplicate(vendorName, invoiceDate, totalAmount);
+    if (existingId) {
+      return { success: false, invoiceId: existingId, duplicate: true };
+    }
+
+    const invoiceItems = Array.isArray(input.invoice_items) ? input.invoice_items : [];
+
+    await client.query('BEGIN');
+
+    const invRes = await client.query(
+      `INSERT INTO invoices
+        (type, vendor_name, vendor_gst_number, invoice_number, invoice_date, currency, is_tax_invoice,
+         sub_total, freight, gst_amount, total_amount, image_url, status, category)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       RETURNING id`,
+      [
+        'Tax Invoice',
+        vendorName,
+        input.vendor_gst_number ?? null,
+        input.invoice_number ?? null,
+        invoiceDate,
+        'NZD',
+        true,
+        toNumberOrNull(input.sub_total) ?? 0,
+        toNumberOrNull(input.freight) ?? 0,
+        toNumberOrNull(input.gst_amount) ?? 0,
+        totalAmount,
+        input.image_url ?? null,
+        input.status ?? 'pending_review',
+        (input.category ?? null) || deriveCategory(vendorName),
+      ]
+    );
+
+    const invoiceId: string = invRes.rows[0].id;
+
+    if (invoiceItems.length) {
+      for (const item of invoiceItems) {
+        const description = item.description?.trim();
+        if (!description) continue;
+
+        await client.query(
+          `INSERT INTO invoice_items
+            (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            invoiceId,
+            item.product_code ?? null,
+            description,
+            item.standard ?? null,
+            toNumberOrNull(item.quantity),
+            item.unit ?? null,
+            toNumberOrNull(item.price),
+            toNumberOrNull(item.amount_excl_gst),
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return { success: true, invoiceId };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return { success: false, error: (err as Error).message };
+  } finally {
+    client.release();
+  }
+}
+
+export async function patchInvoiceWithItems(
+  id: string,
+  updates: Record<string, unknown>,
+  invoiceItems?: ManualInvoiceItemInput[]
+): Promise<boolean> {
+  const allowed = [
+    'status',
+    'vendor_name',
+    'vendor_gst_number',
+    'invoice_number',
+    'invoice_date',
+    'sub_total',
+    'freight',
+    'gst_amount',
+    'total_amount',
+    'category',
+  ];
+
+  const fields = Object.keys(updates).filter((k) => allowed.includes(k));
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (fields.length) {
+      const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
+      const values = fields.map((f) => updates[f]);
+      await client.query(
+        `UPDATE invoices SET ${setClauses}, updated_at=NOW() WHERE id=$1`,
+        [id, ...values]
+      );
+    }
+
+    if (Array.isArray(invoiceItems)) {
+      await client.query(`DELETE FROM invoice_items WHERE invoice_id=$1`, [id]);
+      for (const item of invoiceItems) {
+        const description = item.description?.trim();
+        if (!description) continue;
+        await client.query(
+          `INSERT INTO invoice_items
+            (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            id,
+            item.product_code ?? null,
+            description,
+            item.standard ?? null,
+            toNumberOrNull(item.quantity),
+            item.unit ?? null,
+            toNumberOrNull(item.price),
+            toNumberOrNull(item.amount_excl_gst),
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[DB] ❌ patchInvoiceWithItems rolled back:', (err as Error).message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
 // ── Update status ──────────────────────────────────────────────────────────
 export async function updateInvoiceStatus(
   invoiceId: string,
@@ -197,24 +411,7 @@ export async function listInvoices(opts: {
   );
 
   // node-postgres returns NUMERIC as string by default; normalize to numbers for the UI.
-  const invoices = dataRes.rows.map((row) => {
-    const r: Record<string, unknown> = { ...row };
-    r.sub_total = toNumberOrNull(r.sub_total) ?? 0;
-    r.freight = toNumberOrNull(r.freight) ?? 0;
-    r.gst_amount = toNumberOrNull(r.gst_amount) ?? 0;
-    r.total_amount = toNumberOrNull(r.total_amount) ?? 0;
-
-    if (Array.isArray(r.invoice_items)) {
-      r.invoice_items = (r.invoice_items as Record<string, unknown>[]).map((it) => ({
-        ...it,
-        quantity: toNumberOrNull(it.quantity) ?? 0,
-        price: toNumberOrNull(it.price) ?? 0,
-        amount_excl_gst: toNumberOrNull(it.amount_excl_gst) ?? 0,
-      }));
-    }
-
-    return r;
-  });
+  const invoices = dataRes.rows.map((row) => normalizeInvoiceRow(row as Record<string, unknown>));
 
   return { invoices, total };
 }
@@ -224,8 +421,18 @@ export async function patchInvoice(
   id: string,
   updates: Record<string, unknown>
 ): Promise<boolean> {
-  const allowed = ['status', 'vendor_name', 'invoice_number', 'invoice_date',
-                   'sub_total', 'gst_amount', 'total_amount', 'category'];
+  const allowed = [
+    'status',
+    'vendor_name',
+    'vendor_gst_number',
+    'invoice_number',
+    'invoice_date',
+    'sub_total',
+    'freight',
+    'gst_amount',
+    'total_amount',
+    'category',
+  ];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (!fields.length) return false;
 

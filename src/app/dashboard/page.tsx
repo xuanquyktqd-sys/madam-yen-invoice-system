@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 type InvoiceItem = {
-  id: string;
+  id?: string;
   product_code: string | null;
   description: string;
   quantity: number;
@@ -47,6 +47,19 @@ const statusConfig = {
 
 // ─── Dashboard Page ──────────────────────────────────────────────────────────
 export default function DashboardPage() {
+  type MoneyFieldKey = 'sub_total' | 'freight' | 'gst_amount' | 'total_amount';
+  type MoneyFormState = {
+    vendor_name: string;
+    vendor_gst_number: string;
+    invoice_number: string;
+    invoice_date: string;
+    category: string;
+    sub_total: string;
+    freight: string;
+    gst_amount: string;
+    total_amount: string;
+  };
+
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -63,6 +76,57 @@ export default function DashboardPage() {
   const [processingMsg, setProcessingMsg] = useState('');
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' | 'warn' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualForm, setManualForm] = useState<MoneyFormState>({
+    vendor_name: '',
+    vendor_gst_number: '',
+    invoice_number: '',
+    invoice_date: new Date().toISOString().slice(0, 10),
+    category: '',
+    sub_total: '',
+    freight: '',
+    gst_amount: '',
+    total_amount: '',
+  });
+  const [manualItems, setManualItems] = useState<Array<{
+    product_code: string;
+    description: string;
+    quantity: string;
+    unit: string;
+    price: string;
+    amount_excl_gst: string;
+  }>>([{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }]);
+
+  const [editMode, setEditMode] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editForm, setEditForm] = useState<MoneyFormState>({
+    vendor_name: '',
+    vendor_gst_number: '',
+    invoice_number: '',
+    invoice_date: '',
+    category: '',
+    sub_total: '',
+    freight: '',
+    gst_amount: '',
+    total_amount: '',
+  });
+  const [editItems, setEditItems] = useState<Array<{
+    product_code: string;
+    description: string;
+    quantity: string;
+    unit: string;
+    price: string;
+    amount_excl_gst: string;
+  }>>([]);
+
+  const toDateInput = (value: string) => (value || '').slice(0, 10);
+  const toNumberOrNull = (value: string) => {
+    const v = value.trim();
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
 
   // ── Fetch invoices ────────────────────────────────────────────────────────
   const fetchInvoices = useCallback(async () => {
@@ -200,6 +264,163 @@ export default function DashboardPage() {
     showToast(json.error ?? 'Không xoá được hóa đơn', 'error');
   };
 
+  const openManualModal = () => {
+    setManualForm({
+      vendor_name: '',
+      vendor_gst_number: '',
+      invoice_number: '',
+      invoice_date: new Date().toISOString().slice(0, 10),
+      category: '',
+      sub_total: '',
+      freight: '',
+      gst_amount: '',
+      total_amount: '',
+    });
+    setManualItems([{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }]);
+    setManualOpen(true);
+  };
+
+  const submitManualInvoice = async () => {
+    if (!manualForm.vendor_name.trim() || !manualForm.invoice_date.trim() || !manualForm.total_amount.trim()) {
+      showToast('Vui lòng nhập Nhà cung cấp, Ngày và Tổng tiền', 'error');
+      return;
+    }
+
+    const payload = {
+      vendor_name: manualForm.vendor_name.trim(),
+      vendor_gst_number: manualForm.vendor_gst_number.trim() || null,
+      invoice_number: manualForm.invoice_number.trim() || null,
+      invoice_date: manualForm.invoice_date,
+      category: manualForm.category.trim() || null,
+      sub_total: toNumberOrNull(manualForm.sub_total),
+      freight: toNumberOrNull(manualForm.freight),
+      gst_amount: toNumberOrNull(manualForm.gst_amount),
+      total_amount: toNumberOrNull(manualForm.total_amount),
+      invoice_items: manualItems
+        .map((it) => ({
+          product_code: it.product_code.trim() || null,
+          description: it.description.trim(),
+          quantity: toNumberOrNull(it.quantity),
+          unit: it.unit.trim() || null,
+          price: toNumberOrNull(it.price),
+          amount_excl_gst: toNumberOrNull(it.amount_excl_gst),
+        }))
+        .filter((it) => it.description),
+    };
+
+    setManualSaving(true);
+    try {
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (res.status === 409) {
+        showToast('⚠️ Hóa đơn trùng lặp (duplicate)', 'warn');
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(json.error ?? 'Tạo hóa đơn thất bại');
+      }
+
+      showToast('✅ Đã thêm hóa đơn thủ công', 'success');
+      setManualOpen(false);
+      await fetchInvoices();
+      if (json.invoice) {
+        setSelectedInvoice(json.invoice);
+      }
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
+  const startEdit = () => {
+    if (!selectedInvoice) return;
+    setEditForm({
+      vendor_name: selectedInvoice.vendor_name ?? '',
+      vendor_gst_number: selectedInvoice.vendor_gst_number ?? '',
+      invoice_number: selectedInvoice.invoice_number ?? '',
+      invoice_date: toDateInput(selectedInvoice.invoice_date ?? ''),
+      category: selectedInvoice.category ?? '',
+      sub_total: String(selectedInvoice.sub_total ?? ''),
+      freight: String(selectedInvoice.freight ?? ''),
+      gst_amount: String(selectedInvoice.gst_amount ?? ''),
+      total_amount: String(selectedInvoice.total_amount ?? ''),
+    });
+    setEditItems(
+      (selectedInvoice.invoice_items ?? []).map((it) => ({
+        product_code: it.product_code ?? '',
+        description: it.description ?? '',
+        quantity: String(it.quantity ?? ''),
+        unit: it.unit ?? '',
+        price: String(it.price ?? ''),
+        amount_excl_gst: String(it.amount_excl_gst ?? ''),
+      }))
+    );
+    setEditMode(true);
+  };
+
+  const cancelEdit = () => {
+    setEditMode(false);
+    setEditItems([]);
+  };
+
+  const saveEdit = async () => {
+    if (!selectedInvoice) return;
+    if (!editForm.vendor_name.trim() || !editForm.invoice_date.trim() || !editForm.total_amount.trim()) {
+      showToast('Vui lòng nhập Nhà cung cấp, Ngày và Tổng tiền', 'error');
+      return;
+    }
+
+    const payload = {
+      id: selectedInvoice.id,
+      vendor_name: editForm.vendor_name.trim(),
+      vendor_gst_number: editForm.vendor_gst_number.trim() || null,
+      invoice_number: editForm.invoice_number.trim() || null,
+      invoice_date: editForm.invoice_date,
+      category: editForm.category.trim() || null,
+      sub_total: toNumberOrNull(editForm.sub_total),
+      freight: toNumberOrNull(editForm.freight),
+      gst_amount: toNumberOrNull(editForm.gst_amount),
+      total_amount: toNumberOrNull(editForm.total_amount),
+      invoice_items: editItems
+        .map((it) => ({
+          product_code: it.product_code.trim() || null,
+          description: it.description.trim(),
+          quantity: toNumberOrNull(it.quantity),
+          unit: it.unit.trim() || null,
+          price: toNumberOrNull(it.price),
+          amount_excl_gst: toNumberOrNull(it.amount_excl_gst),
+        }))
+        .filter((it) => it.description),
+    };
+
+    setEditSaving(true);
+    try {
+      const res = await fetch('/api/invoices', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error ?? 'Lưu chỉnh sửa thất bại');
+      }
+      showToast('✅ Đã lưu chỉnh sửa', 'success');
+      setEditMode(false);
+      await fetchInvoices();
+      if (json.invoice) setSelectedInvoice(json.invoice);
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   // ── Export CSV ─────────────────────────────────────────────────────────────
   const exportCSV = () => {
     const rows = [
@@ -265,6 +486,11 @@ export default function DashboardPage() {
               <span className="hidden sm:inline">Thêm hóa đơn</span>
               <span className="sm:hidden">Thêm</span>
             </label>
+            <button
+              onClick={openManualModal}
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border border-slate-700">
+              ✍️ Thêm thủ công
+            </button>
             <input
               id="invoice-upload"
               type="file"
@@ -288,6 +514,161 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* ── Manual Create Modal ─────────────────────────────────────────── */}
+        {manualOpen && (
+          <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+                <h2 className="font-bold text-white text-lg">✍️ Thêm hóa đơn thủ công</h2>
+                <button onClick={() => setManualOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <label className="text-sm">
+                    <div className="text-slate-400 mb-1">Nhà cung cấp *</div>
+                    <input
+                      value={manualForm.vendor_name}
+                      onChange={(e) => setManualForm((p) => ({ ...p, vendor_name: e.target.value }))}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      placeholder="Tokyo Food"
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <div className="text-slate-400 mb-1">GST Number</div>
+                    <input
+                      value={manualForm.vendor_gst_number}
+                      onChange={(e) => setManualForm((p) => ({ ...p, vendor_gst_number: e.target.value }))}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      placeholder="66-442-659"
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <div className="text-slate-400 mb-1">Số hóa đơn</div>
+                    <input
+                      value={manualForm.invoice_number}
+                      onChange={(e) => setManualForm((p) => ({ ...p, invoice_number: e.target.value }))}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      placeholder="IN000..."
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <div className="text-slate-400 mb-1">Ngày *</div>
+                    <input
+                      type="date"
+                      value={manualForm.invoice_date}
+                      onChange={(e) => setManualForm((p) => ({ ...p, invoice_date: e.target.value }))}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    />
+                  </label>
+                  <label className="text-sm sm:col-span-2">
+                    <div className="text-slate-400 mb-1">Danh mục</div>
+                    <input
+                      value={manualForm.category}
+                      onChange={(e) => setManualForm((p) => ({ ...p, category: e.target.value }))}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      placeholder="Food / Cleaning / ..."
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {([
+                    ['Subtotal', 'sub_total'],
+                    ['Freight', 'freight'],
+                    ['GST', 'gst_amount'],
+                    ['Total *', 'total_amount'],
+                  ] as Array<[string, MoneyFieldKey]>).map(([label, key]) => (
+                    <label key={key} className="text-sm">
+                      <div className="text-slate-400 mb-1">{label}</div>
+                      <input
+                        inputMode="decimal"
+                        value={manualForm[key]}
+                        onChange={(e) => setManualForm((p) => ({ ...p, [key]: e.target.value }))}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
+                        placeholder="0.00"
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div className="bg-slate-800 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-semibold text-slate-200">Mặt hàng (tuỳ chọn)</div>
+                    <button
+                      onClick={() => setManualItems((p) => [...p, { product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }])}
+                      className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
+                      + Thêm dòng
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {manualItems.map((it, idx) => (
+                      <div key={idx} className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+                        <input
+                          value={it.product_code}
+                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
+                          className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                          placeholder="Code"
+                        />
+                        <input
+                          value={it.description}
+                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
+                          className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
+                          placeholder="Mô tả"
+                        />
+                        <input
+                          value={it.quantity}
+                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))}
+                          className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                          placeholder="Qty"
+                        />
+                        <input
+                          value={it.price}
+                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                          className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                          placeholder="Price"
+                        />
+                        <div className="flex gap-2 sm:col-span-1">
+                          <input
+                            value={it.amount_excl_gst}
+                            onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
+                            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                            placeholder="Amount"
+                          />
+                          <button
+                            onClick={() => setManualItems((p) => p.filter((_, i) => i !== idx))}
+                            className="px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:bg-red-600 hover:text-white">
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => setManualOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold">
+                    Huỷ
+                  </button>
+                  <button
+                    disabled={manualSaving}
+                    onClick={submitManualInvoice}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-60">
+                    {manualSaving ? 'Đang lưu...' : 'Lưu'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Upload Modal ───────────────────────────────────────────────────── */}
         {uploadStep !== 'idle' && (
           <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -396,6 +777,28 @@ export default function DashboardPage() {
                     <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {selectedInvoice.invoice_date}</p>
                   </div>
                   <div className="flex items-center gap-3">
+                    {!editMode ? (
+                      <button
+                        onClick={startEdit}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-sm font-semibold transition-all">
+                        ✏️ Sửa
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          disabled={editSaving}
+                          onClick={cancelEdit}
+                          className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold transition-all disabled:opacity-60">
+                          Huỷ
+                        </button>
+                        <button
+                          disabled={editSaving}
+                          onClick={saveEdit}
+                          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-all disabled:opacity-60">
+                          {editSaving ? 'Đang lưu...' : 'Lưu'}
+                        </button>
+                      </>
+                    )}
                     <button
                       onClick={() => deleteInvoice(selectedInvoice.id)}
                       className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-red-600 text-slate-200 hover:text-white text-sm font-semibold transition-all">
@@ -405,18 +808,20 @@ export default function DashboardPage() {
                       <>
                         <button
                           onClick={() => updateStatus(selectedInvoice.id, 'rejected')}
+                          disabled={editMode}
                           className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-all">
                           ❌ Từ chối
                         </button>
                         <button
                           onClick={() => updateStatus(selectedInvoice.id, 'approved')}
+                          disabled={editMode}
                           className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-all">
                           ✅ Duyệt
                         </button>
                       </>
                     )}
                     <button
-                      onClick={() => { setSelectedInvoice(null); setImageZoom(1); setImageRotation(0); }}
+                      onClick={() => { setSelectedInvoice(null); setImageZoom(1); setImageRotation(0); setEditMode(false); }}
                       className="text-slate-400 hover:text-white transition-colors p-2">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -477,21 +882,67 @@ export default function DashboardPage() {
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
                           Thông tin hóa đơn
                         </h3>
-                        <div className="space-y-2 text-sm">
-                          {[
-                            ['Nhà cung cấp', selectedInvoice.vendor_name],
-                            ['GST Number', selectedInvoice.vendor_gst_number ?? '—'],
-                            ['Số hóa đơn', selectedInvoice.invoice_number ?? '—'],
-                            ['Ngày', selectedInvoice.invoice_date],
-                            ['Loại', selectedInvoice.is_tax_invoice ? 'Tax Invoice ✅' : 'Quote / Order'],
-                            ['Danh mục', selectedInvoice.category ?? '—'],
-                          ].map(([label, value]) => (
-                            <div key={label} className="flex justify-between border-b border-slate-800 pb-2">
-                              <span className="text-slate-400">{label}</span>
-                              <span className="text-white font-medium text-right max-w-[60%]">{value}</span>
-                            </div>
-                          ))}
-                        </div>
+                        {!editMode ? (
+                          <div className="space-y-2 text-sm">
+                            {[
+                              ['Nhà cung cấp', selectedInvoice.vendor_name],
+                              ['GST Number', selectedInvoice.vendor_gst_number ?? '—'],
+                              ['Số hóa đơn', selectedInvoice.invoice_number ?? '—'],
+                              ['Ngày', selectedInvoice.invoice_date],
+                              ['Loại', selectedInvoice.is_tax_invoice ? 'Tax Invoice ✅' : 'Quote / Order'],
+                              ['Danh mục', selectedInvoice.category ?? '—'],
+                            ].map(([label, value]) => (
+                              <div key={label} className="flex justify-between border-b border-slate-800 pb-2">
+                                <span className="text-slate-400">{label}</span>
+                                <span className="text-white font-medium text-right max-w-[60%]">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                            <label>
+                              <div className="text-slate-400 mb-1">Nhà cung cấp *</div>
+                              <input
+                                value={editForm.vendor_name}
+                                onChange={(e) => setEditForm((p) => ({ ...p, vendor_name: e.target.value }))}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                              />
+                            </label>
+                            <label>
+                              <div className="text-slate-400 mb-1">GST Number</div>
+                              <input
+                                value={editForm.vendor_gst_number}
+                                onChange={(e) => setEditForm((p) => ({ ...p, vendor_gst_number: e.target.value }))}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                              />
+                            </label>
+                            <label>
+                              <div className="text-slate-400 mb-1">Số hóa đơn</div>
+                              <input
+                                value={editForm.invoice_number}
+                                onChange={(e) => setEditForm((p) => ({ ...p, invoice_number: e.target.value }))}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
+                              />
+                            </label>
+                            <label>
+                              <div className="text-slate-400 mb-1">Ngày *</div>
+                              <input
+                                type="date"
+                                value={editForm.invoice_date}
+                                onChange={(e) => setEditForm((p) => ({ ...p, invoice_date: e.target.value }))}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                              />
+                            </label>
+                            <label className="sm:col-span-2">
+                              <div className="text-slate-400 mb-1">Danh mục</div>
+                              <input
+                                value={editForm.category}
+                                onChange={(e) => setEditForm((p) => ({ ...p, category: e.target.value }))}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                              />
+                            </label>
+                          </div>
+                        )}
                       </section>
 
                       {/* Line items */}
@@ -499,23 +950,79 @@ export default function DashboardPage() {
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
                           Mặt hàng ({selectedInvoice.invoice_items?.length ?? 0})
                         </h3>
-                        <div className="space-y-2">
-                          {selectedInvoice.invoice_items?.map((item, idx) => (
-                            <div key={item.id ?? idx} className="bg-slate-800 rounded-xl p-3 text-sm">
-                              <div className="flex justify-between gap-2 mb-1">
-                                <span className="text-white font-medium leading-tight flex-1">{item.description}</span>
-                                <span className="text-emerald-400 font-mono font-bold whitespace-nowrap">
-                                  {formatNZD(item.amount_excl_gst)}
-                                </span>
+                        {!editMode ? (
+                          <div className="space-y-2">
+                            {selectedInvoice.invoice_items?.map((item, idx) => (
+                              <div key={item.id ?? idx} className="bg-slate-800 rounded-xl p-3 text-sm">
+                                <div className="flex justify-between gap-2 mb-1">
+                                  <span className="text-white font-medium leading-tight flex-1">{item.description}</span>
+                                  <span className="text-emerald-400 font-mono font-bold whitespace-nowrap">
+                                    {formatNZD(item.amount_excl_gst)}
+                                  </span>
+                                </div>
+                                <div className="flex gap-4 text-xs text-slate-400">
+                                  {item.product_code && <span className="font-mono">{item.product_code}</span>}
+                                  <span>SL: <span className="text-slate-200">{item.quantity} {item.unit}</span></span>
+                                  <span>Đơn giá: <span className="text-slate-200">{formatNZD(item.price)}</span></span>
+                                </div>
                               </div>
-                              <div className="flex gap-4 text-xs text-slate-400">
-                                {item.product_code && <span className="font-mono">{item.product_code}</span>}
-                                <span>SL: <span className="text-slate-200">{item.quantity} {item.unit}</span></span>
-                                <span>Đơn giá: <span className="text-slate-200">{formatNZD(item.price)}</span></span>
-                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="bg-slate-800 rounded-xl p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="text-sm font-semibold text-slate-200">Chỉnh mặt hàng</div>
+                              <button
+                                onClick={() => setEditItems((p) => [...p, { product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }])}
+                                className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
+                                + Thêm dòng
+                              </button>
                             </div>
-                          ))}
-                        </div>
+                            <div className="space-y-2">
+                              {editItems.map((it, idx) => (
+                                <div key={idx} className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+                                  <input
+                                    value={it.product_code}
+                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
+                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                    placeholder="Code"
+                                  />
+                                  <input
+                                    value={it.description}
+                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
+                                    className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
+                                    placeholder="Mô tả"
+                                  />
+                                  <input
+                                    value={it.quantity}
+                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))}
+                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                    placeholder="Qty"
+                                  />
+                                  <input
+                                    value={it.price}
+                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                    placeholder="Price"
+                                  />
+                                  <div className="flex gap-2 sm:col-span-1">
+                                    <input
+                                      value={it.amount_excl_gst}
+                                      onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
+                                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                      placeholder="Amount"
+                                    />
+                                    <button
+                                      onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
+                                      className="px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:bg-red-600 hover:text-white">
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </section>
 
                       {/* Totals */}
@@ -523,20 +1030,44 @@ export default function DashboardPage() {
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
                           Tổng kết
                         </h3>
-                        {[
-                          ['Subtotal', formatNZD(selectedInvoice.sub_total)],
-                          ['Freight', formatNZD(selectedInvoice.freight ?? 0)],
-                          ['GST (15%)', formatNZD(selectedInvoice.gst_amount)],
-                        ].map(([label, value]) => (
-                          <div key={label} className="flex justify-between text-slate-300">
-                            <span>{label}</span>
-                            <span className="font-mono">{value}</span>
+                        {!editMode ? (
+                          <>
+                            {[
+                              ['Subtotal', formatNZD(selectedInvoice.sub_total)],
+                              ['Freight', formatNZD(selectedInvoice.freight ?? 0)],
+                              ['GST (15%)', formatNZD(selectedInvoice.gst_amount)],
+                            ].map(([label, value]) => (
+                              <div key={label} className="flex justify-between text-slate-300">
+                                <span>{label}</span>
+                                <span className="font-mono">{value}</span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
+                              <span>TOTAL (NZD)</span>
+                              <span className="font-mono text-emerald-400">{formatNZD(selectedInvoice.total_amount)}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {([
+                              ['Subtotal', 'sub_total'],
+                              ['Freight', 'freight'],
+                              ['GST', 'gst_amount'],
+                              ['Total', 'total_amount'],
+                            ] as Array<[string, MoneyFieldKey]>).map(([label, key]) => (
+                              <label key={key} className="text-sm">
+                                <div className="text-slate-400 mb-1">{label}</div>
+                                <input
+                                  inputMode="decimal"
+                                  value={editForm[key]}
+                                  onChange={(e) => setEditForm((p) => ({ ...p, [key]: e.target.value }))}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                  placeholder="0.00"
+                                />
+                              </label>
+                            ))}
                           </div>
-                        ))}
-                        <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
-                          <span>TOTAL (NZD)</span>
-                          <span className="font-mono text-emerald-400">{formatNZD(selectedInvoice.total_amount)}</span>
-                        </div>
+                        )}
                       </section>
 
                       {/* Status action (mobile) */}

@@ -4,7 +4,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteInvoice, getInvoiceImageUrl, listInvoices, patchInvoice } from '@/lib/db-service';
+import {
+  createManualInvoice,
+  deleteInvoice,
+  getInvoiceById,
+  getInvoiceImageUrl,
+  listInvoices,
+  ManualInvoiceItemInput,
+  patchInvoice,
+  patchInvoiceWithItems,
+} from '@/lib/db-service';
 import { deleteInvoiceImageByPublicUrl } from '@/lib/storage-service';
 
 export async function GET(request: NextRequest) {
@@ -27,20 +36,49 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, ...updates } = body;
+    const { id, invoice_items, ...updates } = body as { id?: string; invoice_items?: unknown };
 
     if (!id) {
       return NextResponse.json({ error: 'Invoice ID required' }, { status: 400 });
     }
 
-    const ok = await patchInvoice(id, updates);
+    const items: ManualInvoiceItemInput[] | undefined = Array.isArray(invoice_items)
+      ? (invoice_items as unknown[])
+          .filter((x) => typeof x === 'object' && x !== null)
+          .map((x) => x as ManualInvoiceItemInput)
+      : undefined;
+
+    const ok = Array.isArray(items)
+      ? await patchInvoiceWithItems(id, updates, items)
+      : await patchInvoice(id, updates);
     if (!ok) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true });
+    const invoice = await getInvoiceById(id);
+    return NextResponse.json({ success: true, invoice });
   } catch (err) {
     console.error('[API/invoices PATCH]', err);
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const result = await createManualInvoice(body);
+
+    if (result.duplicate) {
+      return NextResponse.json({ warning: 'Duplicate invoice', invoiceId: result.invoiceId, duplicate: true }, { status: 409 });
+    }
+    if (!result.success || !result.invoiceId) {
+      return NextResponse.json({ error: result.error ?? 'Create invoice failed' }, { status: 400 });
+    }
+
+    const invoice = await getInvoiceById(result.invoiceId);
+    return NextResponse.json({ success: true, invoiceId: result.invoiceId, invoice }, { status: 201 });
+  } catch (err) {
+    console.error('[API/invoices POST]', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
