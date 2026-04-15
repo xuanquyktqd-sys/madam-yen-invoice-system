@@ -26,6 +26,12 @@ function toNumberOrNull(value: unknown): number | null {
   return null;
 }
 
+function isMissingTableError(err: unknown): boolean {
+  const e = err as { code?: string } | null;
+  // 42P01 = undefined_table
+  return !!e && e.code === '42P01';
+}
+
 export type SaveResult = {
   success: boolean;
   invoiceId?: string;
@@ -91,24 +97,66 @@ function normalizeInvoiceRow(row: Record<string, unknown>): Record<string, unkno
 }
 
 export async function getInvoiceById(id: string): Promise<Record<string, unknown> | null> {
-  const res = await pool.query(
-    `SELECT i.*,
-       json_agg(
-         json_build_object(
-           'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
-           'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
-           'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
-         ) ORDER BY ii.created_at
-       ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
-     FROM invoices i
-     LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-     WHERE i.id = $1
-     GROUP BY i.id`,
-    [id]
-  );
+  try {
+    const res = await pool.query(
+      `SELECT i.*,
+         i.vendor_id AS vendor_id,
+         v.name AS vendor_name_catalog,
+         v.gst_number AS vendor_gst_number_catalog,
+         v.address AS vendor_address_catalog,
+         json_agg(
+           json_build_object(
+             'id', ii.id,
+             'invoice_id', ii.invoice_id,
+             'product_id', ii.product_id,
+             'unit_id', ii.unit_id,
+             'standard_id', ii.standard_id,
+             'restaurant_product_id', rp.restaurant_product_id,
+             'product_code', COALESCE(ii.product_code, rp.vendor_product_code),
+             'description', COALESCE(ii.description, rp.name),
+             'standard', COALESCE(ii.standard, s.value),
+             'quantity', ii.quantity,
+             'unit', COALESCE(ii.unit, u.code),
+             'price', ii.price,
+             'amount_excl_gst', ii.amount_excl_gst
+           ) ORDER BY ii.created_at
+         ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+       FROM invoices i
+       LEFT JOIN vendors v ON v.id = i.vendor_id
+       LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+       LEFT JOIN restaurant_products rp ON rp.id = ii.product_id
+       LEFT JOIN units u ON u.id = ii.unit_id
+       LEFT JOIN standards s ON s.id = ii.standard_id
+       WHERE i.id = $1
+       GROUP BY i.id, v.id`,
+      [id]
+    );
 
-  const row = res.rows[0] as Record<string, unknown> | undefined;
-  return row ? normalizeInvoiceRow(row) : null;
+    const row = res.rows[0] as Record<string, unknown> | undefined;
+    return row ? normalizeInvoiceRow(row) : null;
+  } catch (err) {
+    if (!isMissingTableError(err)) throw err;
+
+    // Backward-compatible fallback (before catalog tables exist)
+    const res = await pool.query(
+      `SELECT i.*,
+         json_agg(
+           json_build_object(
+             'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
+             'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
+             'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
+           ) ORDER BY ii.created_at
+         ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+       FROM invoices i
+       LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+       WHERE i.id = $1
+       GROUP BY i.id`,
+      [id]
+    );
+
+    const row = res.rows[0] as Record<string, unknown> | undefined;
+    return row ? normalizeInvoiceRow(row) : null;
+  }
 }
 
 // ── Save invoice + items ────────────────────────────────────────────────────
@@ -392,23 +440,60 @@ export async function listInvoices(opts: {
   const total = parseInt(countRes.rows[0].count, 10);
 
   // Data
-  const dataRes = await pool.query(
-    `SELECT i.*,
-       json_agg(
-         json_build_object(
-           'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
-           'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
-           'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
-         ) ORDER BY ii.created_at
-       ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
-     FROM invoices i
-     LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-     ${where}
-     GROUP BY i.id
-     ORDER BY i.invoice_date DESC, i.created_at DESC
-     LIMIT $${idx} OFFSET $${idx + 1}`,
-    [...params, limit, offset]
-  );
+  let dataRes;
+  try {
+    dataRes = await pool.query(
+      `SELECT i.*,
+         i.vendor_id AS vendor_id,
+         v.name AS vendor_name_catalog,
+         json_agg(
+           json_build_object(
+             'id', ii.id,
+             'product_id', ii.product_id,
+             'unit_id', ii.unit_id,
+             'standard_id', ii.standard_id,
+             'restaurant_product_id', rp.restaurant_product_id,
+             'product_code', COALESCE(ii.product_code, rp.vendor_product_code),
+             'description', COALESCE(ii.description, rp.name),
+             'standard', COALESCE(ii.standard, s.value),
+             'quantity', ii.quantity,
+             'unit', COALESCE(ii.unit, u.code),
+             'price', ii.price,
+             'amount_excl_gst', ii.amount_excl_gst
+           ) ORDER BY ii.created_at
+         ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+       FROM invoices i
+       LEFT JOIN vendors v ON v.id = i.vendor_id
+       LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+       LEFT JOIN restaurant_products rp ON rp.id = ii.product_id
+       LEFT JOIN units u ON u.id = ii.unit_id
+       LEFT JOIN standards s ON s.id = ii.standard_id
+       ${where}
+       GROUP BY i.id, v.id
+       ORDER BY i.invoice_date DESC, i.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset]
+    );
+  } catch (err) {
+    if (!isMissingTableError(err)) throw err;
+    dataRes = await pool.query(
+      `SELECT i.*,
+         json_agg(
+           json_build_object(
+             'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
+             'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
+             'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
+           ) ORDER BY ii.created_at
+         ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
+       FROM invoices i
+       LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+       ${where}
+       GROUP BY i.id
+       ORDER BY i.invoice_date DESC, i.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset]
+    );
+  }
 
   // node-postgres returns NUMERIC as string by default; normalize to numbers for the UI.
   const invoices = dataRes.rows.map((row) => normalizeInvoiceRow(row as Record<string, unknown>));
@@ -456,4 +541,35 @@ export async function getInvoiceImageUrl(id: string): Promise<string | null> {
 export async function deleteInvoice(id: string): Promise<boolean> {
   const res = await pool.query(`DELETE FROM invoices WHERE id=$1`, [id]);
   return (res.rowCount ?? 0) > 0;
+}
+
+// ── Catalog list helpers (used for UI datalist/dropdown) ───────────────────
+export async function listVendors(limit = 200): Promise<string[]> {
+  try {
+    const res = await pool.query(`SELECT name FROM vendors ORDER BY name ASC LIMIT $1`, [limit]);
+    return res.rows.map((r) => r.name as string).filter(Boolean);
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    throw err;
+  }
+}
+
+export async function listUnits(limit = 200): Promise<string[]> {
+  try {
+    const res = await pool.query(`SELECT code FROM units ORDER BY code ASC LIMIT $1`, [limit]);
+    return res.rows.map((r) => r.code as string).filter(Boolean);
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    throw err;
+  }
+}
+
+export async function listStandards(limit = 200): Promise<string[]> {
+  try {
+    const res = await pool.query(`SELECT value FROM standards ORDER BY value ASC LIMIT $1`, [limit]);
+    return res.rows.map((r) => r.value as string).filter(Boolean);
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    throw err;
+  }
 }

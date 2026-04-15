@@ -7,6 +7,7 @@ type InvoiceItem = {
   id?: string;
   product_code: string | null;
   description: string;
+  standard?: string | null;
   quantity: number;
   unit: string | null;
   price: number;
@@ -78,6 +79,9 @@ export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
+  const [vendorOptions, setVendorOptions] = useState<string[]>([]);
+  const [unitOptions, setUnitOptions] = useState<string[]>([]);
+  const [standardOptions, setStandardOptions] = useState<string[]>([]);
   const [manualForm, setManualForm] = useState<MoneyFormState>({
     vendor_name: '',
     vendor_gst_number: '',
@@ -93,10 +97,11 @@ export default function DashboardPage() {
     product_code: string;
     description: string;
     quantity: string;
+    standard: string;
     unit: string;
     price: string;
     amount_excl_gst: string;
-  }>>([{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }]);
+  }>>([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }]);
 
   const [editMode, setEditMode] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -115,6 +120,7 @@ export default function DashboardPage() {
     product_code: string;
     description: string;
     quantity: string;
+    standard: string;
     unit: string;
     price: string;
     amount_excl_gst: string;
@@ -147,6 +153,18 @@ export default function DashboardPage() {
   }, [filterStatus, search]);
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
+  useEffect(() => {
+    // Optional catalog endpoints (safe to fail before DB migration is applied)
+    void Promise.all([
+      fetch('/api/catalog/vendors').then((r) => r.json()).catch(() => ({})),
+      fetch('/api/catalog/units').then((r) => r.json()).catch(() => ({})),
+      fetch('/api/catalog/standards').then((r) => r.json()).catch(() => ({})),
+    ]).then(([v, u, s]) => {
+      setVendorOptions(Array.isArray(v?.vendors) ? v.vendors : []);
+      setUnitOptions(Array.isArray(u?.units) ? u.units : []);
+      setStandardOptions(Array.isArray(s?.standards) ? s.standards : []);
+    });
+  }, []);
 
   // ── Toast ─────────────────────────────────────────────────────────────────
   const showToast = (text: string, type: 'success' | 'error' | 'warn') => {
@@ -276,7 +294,7 @@ export default function DashboardPage() {
       gst_amount: '',
       total_amount: '',
     });
-    setManualItems([{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }]);
+    setManualItems([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }]);
     setManualOpen(true);
   };
 
@@ -301,6 +319,7 @@ export default function DashboardPage() {
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
           quantity: toNumberOrNull(it.quantity),
+          standard: it.standard.trim() || null,
           unit: it.unit.trim() || null,
           price: toNumberOrNull(it.price),
           amount_excl_gst: toNumberOrNull(it.amount_excl_gst),
@@ -356,6 +375,7 @@ export default function DashboardPage() {
         product_code: it.product_code ?? '',
         description: it.description ?? '',
         quantity: String(it.quantity ?? ''),
+        standard: it.standard ?? '',
         unit: it.unit ?? '',
         price: String(it.price ?? ''),
         amount_excl_gst: String(it.amount_excl_gst ?? ''),
@@ -392,6 +412,7 @@ export default function DashboardPage() {
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
           quantity: toNumberOrNull(it.quantity),
+          standard: it.standard.trim() || null,
           unit: it.unit.trim() || null,
           price: toNumberOrNull(it.price),
           amount_excl_gst: toNumberOrNull(it.amount_excl_gst),
@@ -463,6 +484,22 @@ export default function DashboardPage() {
         </div>
       )}
 
+      <datalist id="vendor-options">
+        {vendorOptions.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <datalist id="unit-options">
+        {unitOptions.map((u) => (
+          <option key={u} value={u} />
+        ))}
+      </datalist>
+      <datalist id="standard-options">
+        {standardOptions.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
@@ -532,6 +569,7 @@ export default function DashboardPage() {
                   <label className="text-sm">
                     <div className="text-slate-400 mb-1">Nhà cung cấp *</div>
                     <input
+                      list="vendor-options"
                       value={manualForm.vendor_name}
                       onChange={(e) => setManualForm((p) => ({ ...p, vendor_name: e.target.value }))}
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
@@ -600,7 +638,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-sm font-semibold text-slate-200">Mặt hàng (tuỳ chọn)</div>
                     <button
-                      onClick={() => setManualItems((p) => [...p, { product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }])}
+                      onClick={() => setManualItems((p) => [...p, { product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }])}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
                       + Thêm dòng
                     </button>
@@ -608,18 +646,25 @@ export default function DashboardPage() {
 
                   <div className="space-y-2">
                     {manualItems.map((it, idx) => (
-                      <div key={idx} className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+                      <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                         <input
                           value={it.product_code}
                           onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
-                          className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                          className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
                           placeholder="Code"
                         />
                         <input
                           value={it.description}
                           onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
-                          className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
+                          className="sm:col-span-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
                           placeholder="Mô tả"
+                        />
+                        <input
+                          list="standard-options"
+                          value={it.standard}
+                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, standard: e.target.value } : x))}
+                          className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                          placeholder="Standard"
                         />
                         <input
                           value={it.quantity}
@@ -628,12 +673,19 @@ export default function DashboardPage() {
                           placeholder="Qty"
                         />
                         <input
+                          list="unit-options"
+                          value={it.unit}
+                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
+                          className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                          placeholder="Unit"
+                        />
+                        <input
                           value={it.price}
                           onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
                           className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
                           placeholder="Price"
                         />
-                        <div className="flex gap-2 sm:col-span-1">
+                        <div className="flex gap-2 sm:col-span-2">
                           <input
                             value={it.amount_excl_gst}
                             onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
@@ -903,6 +955,7 @@ export default function DashboardPage() {
                             <label>
                               <div className="text-slate-400 mb-1">Nhà cung cấp *</div>
                               <input
+                                list="vendor-options"
                                 value={editForm.vendor_name}
                                 onChange={(e) => setEditForm((p) => ({ ...p, vendor_name: e.target.value }))}
                                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
@@ -962,6 +1015,7 @@ export default function DashboardPage() {
                                 </div>
                                 <div className="flex gap-4 text-xs text-slate-400">
                                   {item.product_code && <span className="font-mono">{item.product_code}</span>}
+                                  {item.standard && <span className="font-mono">{item.standard}</span>}
                                   <span>SL: <span className="text-slate-200">{item.quantity} {item.unit}</span></span>
                                   <span>Đơn giá: <span className="text-slate-200">{formatNZD(item.price)}</span></span>
                                 </div>
@@ -973,25 +1027,32 @@ export default function DashboardPage() {
                             <div className="flex items-center justify-between">
                               <div className="text-sm font-semibold text-slate-200">Chỉnh mặt hàng</div>
                               <button
-                                onClick={() => setEditItems((p) => [...p, { product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '' }])}
+                                onClick={() => setEditItems((p) => [...p, { product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }])}
                                 className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
                                 + Thêm dòng
                               </button>
                             </div>
                             <div className="space-y-2">
                               {editItems.map((it, idx) => (
-                                <div key={idx} className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+                                <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                                   <input
                                     value={it.product_code}
                                     onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
-                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                    className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
                                     placeholder="Code"
                                   />
                                   <input
                                     value={it.description}
                                     onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))}
-                                    className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
+                                    className="sm:col-span-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
                                     placeholder="Mô tả"
+                                  />
+                                  <input
+                                    list="standard-options"
+                                    value={it.standard}
+                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, standard: e.target.value } : x))}
+                                    className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                    placeholder="Standard"
                                   />
                                   <input
                                     value={it.quantity}
@@ -1000,12 +1061,19 @@ export default function DashboardPage() {
                                     placeholder="Qty"
                                   />
                                   <input
+                                    list="unit-options"
+                                    value={it.unit}
+                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
+                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                    placeholder="Unit"
+                                  />
+                                  <input
                                     value={it.price}
                                     onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
                                     className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
                                     placeholder="Price"
                                   />
-                                  <div className="flex gap-2 sm:col-span-1">
+                                  <div className="flex gap-2 sm:col-span-2">
                                     <input
                                       value={it.amount_excl_gst}
                                       onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
