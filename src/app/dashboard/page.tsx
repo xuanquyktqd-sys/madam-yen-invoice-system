@@ -1490,29 +1490,32 @@ export default function DashboardPage() {
                                 <div key={idx} className="bg-slate-800 rounded-xl p-3 text-sm">
                                   <div className="flex justify-between gap-2 mb-1">
                                     <span className="text-white font-medium leading-tight flex-1">
-                                      <input
-                                        value={it.description}
-                                        list="edit-product-options"
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          setEditItems((prev) => {
-                                            const next = prev.map((x, i) => i === idx ? { ...x, description: value } : x);
-                                            const match = editProductOptions.find((p) => p.name === value);
-                                            if (!match) return next;
-                                            return next.map((x, i) => {
-                                              if (i !== idx) return x;
-                                              return {
-                                                ...x,
-                                                product_code: x.product_code || (match.vendor_product_code ?? ''),
-                                                unit: x.unit || (match.unit ?? ''),
-                                                standard: x.standard || (match.standard ?? ''),
-                                              };
+                                      <span className="inline-flex items-center gap-1 w-full">
+                                        <input
+                                          value={it.description}
+                                          list="edit-product-options"
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            setEditItems((prev) => {
+                                              const next = prev.map((x, i) => i === idx ? { ...x, description: value } : x);
+                                              const match = editProductOptions.find((p) => p.name === value);
+                                              if (!match) return next;
+                                              return next.map((x, i) => {
+                                                if (i !== idx) return x;
+                                                return {
+                                                  ...x,
+                                                  product_code: x.product_code || (match.vendor_product_code ?? ''),
+                                                  unit: x.unit || (match.unit ?? ''),
+                                                  standard: x.standard || (match.standard ?? ''),
+                                                };
+                                              });
                                             });
-                                          });
-                                        }}
-                                        className="w-full bg-transparent border-0 p-0 m-0 text-white font-medium leading-tight focus:outline-none"
-                                        placeholder="Tên sản phẩm"
-                                      />
+                                          }}
+                                          className="w-full bg-transparent border-0 p-0 m-0 text-white font-medium leading-tight focus:outline-none"
+                                          placeholder="Tên sản phẩm"
+                                        />
+                                        <span className="text-[10px] text-slate-500 select-none" title="Có thể sửa">✎</span>
+                                      </span>
                                       {it.standard ? ` · ${it.standard}` : ''}
                                     </span>
                                     <span className="text-emerald-400 font-mono font-bold whitespace-nowrap">
@@ -1522,46 +1525,53 @@ export default function DashboardPage() {
 
                                   <div className="flex gap-4 text-xs text-slate-400 items-center">
                                     {it.product_code && (
-                                      <span className="font-mono">
+                                      <span className="font-mono inline-flex items-center gap-1">
                                         <input
                                           value={it.product_code}
                                           onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
                                           className="w-28 bg-transparent border-0 p-0 m-0 text-slate-400 font-mono focus:outline-none"
                                           placeholder="Code"
                                         />
+                                        <span className="text-[10px] text-slate-500 select-none" title="Có thể sửa">✎</span>
                                       </span>
                                     )}
                                     <span>
                                       SL:{' '}
                                       <span className="text-slate-200">
-                                        <input
-                                          value={it.quantity}
-                                          onChange={(e) => {
-                                            const quantity = e.target.value;
-                                            setEditItems((p) => p.map((x, i) => {
-                                              if (i !== idx) return x;
-                                              const next: typeof x = { ...x, quantity };
-                                              const q = toNumberOrNullInput(quantity) ?? 0;
-                                              const pr = toNumberOrNullInput(next.price) ?? 0;
-                                              next.amount_excl_gst = fmt2(q * pr);
-                                              return next;
-                                            }));
-                                          }}
-                                          className="w-16 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
-                                          placeholder="0"
-                                        />{' '}
-                                        <input
-                                          list="unit-options"
-                                          value={it.unit}
-                                          onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
-                                          className="w-14 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
-                                          placeholder="EA"
-                                        />
+                                        <span className="inline-flex items-center gap-1">
+                                          <input
+                                            value={it.quantity}
+                                            onChange={(e) => {
+                                              const quantity = e.target.value;
+                                              setEditItems((p) => p.map((x, i) => {
+                                                if (i !== idx) return x;
+                                                const next: typeof x = { ...x, quantity };
+                                                const q = toNumberOrNullInput(quantity) ?? 0;
+                                                const pr = toNumberOrNullInput(next.price) ?? 0;
+                                                next.amount_excl_gst = fmt2(q * pr);
+                                                return next;
+                                              }));
+                                            }}
+                                            className="w-16 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
+                                            placeholder="0"
+                                          />
+                                          <span className="text-[10px] text-slate-500 select-none" title="Có thể sửa">✎</span>
+                                        </span>{' '}
+                                        <span className="inline-flex items-center gap-1">
+                                          <input
+                                            list="unit-options"
+                                            value={it.unit}
+                                            onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
+                                            className="w-14 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
+                                            placeholder="EA"
+                                          />
+                                          <span className="text-[10px] text-slate-500 select-none" title="Có thể sửa">✎</span>
+                                        </span>
                                       </span>
                                     </span>
                                     <span>
                                       Đơn giá:{' '}
-                                      <span className="text-slate-200 font-mono">
+                                      <span className="text-slate-200 font-mono inline-flex items-center gap-1">
                                         <input
                                           value={it.price}
                                           onChange={(e) => {
@@ -1578,6 +1588,7 @@ export default function DashboardPage() {
                                           className="w-20 bg-transparent border-0 p-0 m-0 text-slate-200 font-mono focus:outline-none"
                                           placeholder="0.00"
                                         />
+                                        <span className="text-[10px] text-slate-500 select-none" title="Có thể sửa">✎</span>
                                       </span>
                                     </span>
 
