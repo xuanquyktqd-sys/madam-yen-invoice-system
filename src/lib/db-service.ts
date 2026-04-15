@@ -16,6 +16,16 @@ const pool = new Pool({
   idleTimeoutMillis: 30_000,
 });
 
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 export type SaveResult = {
   success: boolean;
   invoiceId?: string;
@@ -186,7 +196,27 @@ export async function listInvoices(opts: {
     [...params, limit, offset]
   );
 
-  return { invoices: dataRes.rows, total };
+  // node-postgres returns NUMERIC as string by default; normalize to numbers for the UI.
+  const invoices = dataRes.rows.map((row) => {
+    const r: Record<string, unknown> = { ...row };
+    r.sub_total = toNumberOrNull(r.sub_total) ?? 0;
+    r.freight = toNumberOrNull(r.freight) ?? 0;
+    r.gst_amount = toNumberOrNull(r.gst_amount) ?? 0;
+    r.total_amount = toNumberOrNull(r.total_amount) ?? 0;
+
+    if (Array.isArray(r.invoice_items)) {
+      r.invoice_items = (r.invoice_items as Record<string, unknown>[]).map((it) => ({
+        ...it,
+        quantity: toNumberOrNull(it.quantity) ?? 0,
+        price: toNumberOrNull(it.price) ?? 0,
+        amount_excl_gst: toNumberOrNull(it.amount_excl_gst) ?? 0,
+      }));
+    }
+
+    return r;
+  });
+
+  return { invoices, total };
 }
 
 // ── Update invoice fields ──────────────────────────────────────────────────
