@@ -199,6 +199,13 @@ export default function DashboardPage() {
 
   const toDateInput = (value: string) => (value || '').slice(0, 10);
 
+  const isCreditInvoice = (inv: Invoice | null): boolean =>
+    !!inv && (
+      (inv.type ?? '').toLowerCase().includes('credit') ||
+      (inv.total_amount ?? 0) < 0 ||
+      !!inv.parent_invoice_id
+    );
+
   const applyDatePreset = (preset: DatePreset) => {
     setDatePreset(preset);
 
@@ -519,26 +526,27 @@ export default function DashboardPage() {
 
   const startEdit = () => {
     if (!selectedInvoice) return;
+    const isCredit = isCreditInvoice(selectedInvoice);
     setEditForm({
       vendor_name: selectedInvoice.vendor_name ?? '',
       vendor_gst_number: selectedInvoice.vendor_gst_number ?? '',
       invoice_number: selectedInvoice.invoice_number ?? '',
       invoice_date: toDateInput(selectedInvoice.invoice_date ?? ''),
       category: selectedInvoice.category ?? '',
-      sub_total: String(selectedInvoice.sub_total ?? ''),
-      freight: String(selectedInvoice.freight ?? ''),
-      gst_amount: String(selectedInvoice.gst_amount ?? ''),
-      total_amount: String(selectedInvoice.total_amount ?? ''),
+      sub_total: String(isCredit ? -Math.abs(selectedInvoice.sub_total ?? 0) : (selectedInvoice.sub_total ?? '')),
+      freight: String(isCredit ? -Math.abs(selectedInvoice.freight ?? 0) : (selectedInvoice.freight ?? '')),
+      gst_amount: String(isCredit ? -Math.abs(selectedInvoice.gst_amount ?? 0) : (selectedInvoice.gst_amount ?? '')),
+      total_amount: String(isCredit ? -Math.abs(selectedInvoice.total_amount ?? 0) : (selectedInvoice.total_amount ?? '')),
     });
     setEditItems(
       (selectedInvoice.invoice_items ?? []).map((it) => ({
         product_code: it.product_code ?? '',
         description: it.description ?? '',
-        quantity: String(it.quantity ?? ''),
+        quantity: String(isCredit ? Math.abs(it.quantity ?? 0) : (it.quantity ?? '')),
         standard: it.standard ?? '',
         unit: it.unit ?? '',
-        price: String(it.price ?? ''),
-        amount_excl_gst: String(it.amount_excl_gst ?? ''),
+        price: String(isCredit ? Math.abs(it.price ?? 0) : (it.price ?? '')),
+        amount_excl_gst: String(isCredit ? -Math.abs(it.amount_excl_gst ?? 0) : (it.amount_excl_gst ?? '')),
       }))
     );
     setEditMode(true);
@@ -546,12 +554,23 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!editMode) return;
-    const totals = calcTotalsFromRows(editItems, editForm.freight);
+    const isCredit = isCreditInvoice(selectedInvoice);
+    const freightRaw = toNumberOrNullInput(editForm.freight) ?? 0;
+    const freight = isCredit ? -Math.abs(freightRaw) : freightRaw;
+    const subAbs = editItems.reduce((sum, r) => {
+      const q = Math.abs(toNumberOrNullInput(r.quantity) ?? 0);
+      const p = Math.abs(toNumberOrNullInput(r.price) ?? 0);
+      return sum + round2(q * p);
+    }, 0);
+    const sub = isCredit ? -round2(subAbs) : round2(subAbs);
+    const gst = round2(sub * 0.15);
+    const total = round2(sub + freight + gst);
+    const totals = { sub_total: fmt2(sub), gst_amount: fmt2(gst), total_amount: fmt2(total) };
     setEditForm((p) => {
       if (p.sub_total === totals.sub_total && p.gst_amount === totals.gst_amount && p.total_amount === totals.total_amount) return p;
-      return { ...p, ...totals };
+      return { ...p, ...totals, freight: String(freight) };
     });
-  }, [editMode, editItems, editForm.freight]);
+  }, [editMode, editItems, editForm.freight, selectedInvoice]);
 
   const cancelEdit = () => {
     setEditMode(false);
@@ -643,15 +662,28 @@ export default function DashboardPage() {
       return;
     }
 
+    const isCredit = isCreditInvoice(selectedInvoice);
+
     const normalizedEditItems = editItems
       .map((it) => {
-        const q = toNumberOrNullInput(it.quantity) ?? 0;
-        const p = toNumberOrNullInput(it.price) ?? 0;
-        return { ...it, amount_excl_gst: fmt2(q * p) };
+        const q = Math.abs(toNumberOrNullInput(it.quantity) ?? 0);
+        const p = Math.abs(toNumberOrNullInput(it.price) ?? 0);
+        const amt = isCredit ? -Math.abs(q * p) : q * p;
+        return { ...it, amount_excl_gst: fmt2(amt) };
       })
       .filter((it) => it.description.trim());
 
-    const totals = calcTotalsFromRows(normalizedEditItems, editForm.freight);
+    const freightRaw = toNumberOrNullInput(editForm.freight) ?? 0;
+    const freight = isCredit ? -Math.abs(freightRaw) : freightRaw;
+    const subAbs = normalizedEditItems.reduce((sum, r) => {
+      const q = Math.abs(toNumberOrNullInput(r.quantity) ?? 0);
+      const p = Math.abs(toNumberOrNullInput(r.price) ?? 0);
+      return sum + round2(q * p);
+    }, 0);
+    const sub = isCredit ? -round2(subAbs) : round2(subAbs);
+    const gst = round2(sub * 0.15);
+    const total = round2(sub + freight + gst);
+    const totals = { sub_total: fmt2(sub), gst_amount: fmt2(gst), total_amount: fmt2(total) };
 
     const payload = {
       id: selectedInvoice.id,
@@ -661,17 +693,25 @@ export default function DashboardPage() {
       invoice_date: editForm.invoice_date,
       category: editForm.category.trim() || null,
       sub_total: toNumberOrNullInput(totals.sub_total),
-      freight: toNumberOrNullInput(editForm.freight),
+      freight,
       gst_amount: toNumberOrNullInput(totals.gst_amount),
       total_amount: toNumberOrNullInput(totals.total_amount),
       invoice_items: normalizedEditItems
         .map((it) => ({
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
-          quantity: toNumberOrNullInput(it.quantity),
+          quantity: (() => {
+            const q = toNumberOrNullInput(it.quantity);
+            if (q === null) return null;
+            return isCredit ? -Math.abs(q) : q;
+          })(),
           standard: it.standard.trim() || null,
           unit: it.unit.trim() || null,
-          price: toNumberOrNullInput(it.price),
+          price: (() => {
+            const p = toNumberOrNullInput(it.price);
+            if (p === null) return null;
+            return Math.abs(p);
+          })(),
           amount_excl_gst: toNumberOrNullInput(it.amount_excl_gst),
         }))
         .filter((it) => it.description),
@@ -1459,19 +1499,29 @@ export default function DashboardPage() {
                           <div className="space-y-2">
                             {selectedInvoice.invoice_items?.map((item, idx) => (
                               <div key={item.id ?? idx} className="bg-slate-800 rounded-xl p-3 text-sm">
-                                <div className="flex justify-between gap-2 mb-1">
-                                  <span className="text-white font-medium leading-tight flex-1">
-                                    {item.description}{item.standard ? ` · ${item.standard}` : ''}
-                                  </span>
-                                  <span className="text-emerald-400 font-mono font-bold whitespace-nowrap">
-                                    {formatNZD(item.amount_excl_gst)}
-                                  </span>
-                                </div>
-                                <div className="flex gap-4 text-xs text-slate-400">
-                                  {item.product_code && <span className="font-mono">{item.product_code}</span>}
-                                  <span>SL: <span className="text-slate-200">{item.quantity} {item.unit}</span></span>
-                                  <span>Đơn giá: <span className="text-slate-200">{formatNZD(item.price)}</span></span>
-                                </div>
+                                {(() => {
+                                  const isCredit = isSelectedCreditNote;
+                                  const amount = isCredit ? -Math.abs(item.amount_excl_gst) : item.amount_excl_gst;
+                                  const qty = isCredit ? Math.abs(item.quantity) : item.quantity;
+                                  const price = isCredit ? Math.abs(item.price) : item.price;
+                                  return (
+                                    <>
+                                      <div className="flex justify-between gap-2 mb-1">
+                                        <span className="text-white font-medium leading-tight flex-1">
+                                          {item.description}{item.standard ? ` · ${item.standard}` : ''}
+                                        </span>
+                                        <span className={`${isCredit ? 'text-red-400' : 'text-emerald-400'} font-mono font-bold whitespace-nowrap`}>
+                                          {formatNZD(amount)}
+                                        </span>
+                                      </div>
+                                      <div className="flex gap-4 text-xs text-slate-400">
+                                        {item.product_code && <span className="font-mono">{item.product_code}</span>}
+                                        <span>SL: <span className="text-slate-200">{qty} {item.unit}</span></span>
+                                        <span>Đơn giá: <span className="text-slate-200">{formatNZD(price)}</span></span>
+                                      </div>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             ))}
                           </div>
@@ -1491,7 +1541,7 @@ export default function DashboardPage() {
                               {editItems.map((it, idx) => (
                                 <div key={idx} className="bg-slate-800 rounded-xl p-3 text-sm">
                                   <div className="flex justify-between gap-2 mb-1">
-                                    <span className="text-white font-medium leading-tight flex-1">
+                                  <span className="text-white font-medium leading-tight flex-1">
                                       <input
                                         value={it.description}
                                         list="edit-product-options"
@@ -1517,8 +1567,8 @@ export default function DashboardPage() {
                                       />
                                       {it.standard ? ` · ${it.standard}` : ''}
                                     </span>
-                                    <span className="text-emerald-400 font-mono font-bold whitespace-nowrap">
-                                      {formatNZD(Number(it.amount_excl_gst || '0'))}
+                                    <span className={`${isSelectedCreditNote ? 'text-red-400' : 'text-emerald-400'} font-mono font-bold whitespace-nowrap`}>
+                                      {formatNZD(isSelectedCreditNote ? -Math.abs(Number(it.amount_excl_gst || '0')) : Number(it.amount_excl_gst || '0'))}
                                     </span>
                                   </div>
 
@@ -1540,12 +1590,12 @@ export default function DashboardPage() {
                                           value={it.quantity}
                                           onChange={(e) => {
                                             const quantity = e.target.value;
-                                            setEditItems((p) => p.map((x, i) => {
+                                          setEditItems((p) => p.map((x, i) => {
                                               if (i !== idx) return x;
                                               const next: typeof x = { ...x, quantity };
                                               const q = toNumberOrNullInput(quantity) ?? 0;
                                               const pr = toNumberOrNullInput(next.price) ?? 0;
-                                              next.amount_excl_gst = fmt2(q * pr);
+                                              next.amount_excl_gst = isSelectedCreditNote ? fmt2(-Math.abs(q * pr)) : fmt2(q * pr);
                                               return next;
                                             }));
                                           }}
@@ -1573,7 +1623,7 @@ export default function DashboardPage() {
                                               const next: typeof x = { ...x, price };
                                               const q = toNumberOrNullInput(next.quantity) ?? 0;
                                               const pr = toNumberOrNullInput(price) ?? 0;
-                                              next.amount_excl_gst = fmt2(q * pr);
+                                              next.amount_excl_gst = isSelectedCreditNote ? fmt2(-Math.abs(q * pr)) : fmt2(q * pr);
                                               return next;
                                             }));
                                           }}
@@ -1605,20 +1655,30 @@ export default function DashboardPage() {
                         </h3>
                         {!editMode ? (
                           <>
-                            {[
-                              ['Subtotal', formatNZD(selectedInvoice.sub_total)],
-                              ['Freight', formatNZD(selectedInvoice.freight ?? 0)],
-                              ['GST (15%)', formatNZD(selectedInvoice.gst_amount)],
-                            ].map(([label, value]) => (
-                              <div key={label} className="flex justify-between text-slate-300">
-                                <span>{label}</span>
-                                <span className="font-mono">{value}</span>
-                              </div>
-                            ))}
+                            {(() => {
+                              const isCredit = isSelectedCreditNote;
+                              const sub = isCredit ? -Math.abs(selectedInvoice.sub_total) : selectedInvoice.sub_total;
+                              const freight = isCredit ? -Math.abs(selectedInvoice.freight ?? 0) : (selectedInvoice.freight ?? 0);
+                              const gst = isCredit ? -Math.abs(selectedInvoice.gst_amount) : selectedInvoice.gst_amount;
+                              return (
+                                <>
+                                  {[
+                                    ['Subtotal', formatNZD(sub)],
+                                    ['Freight', formatNZD(freight)],
+                                    ['GST (15%)', formatNZD(gst)],
+                                  ].map(([label, value]) => (
+                                    <div key={label} className="flex justify-between text-slate-300">
+                                      <span>{label}</span>
+                                      <span className={`font-mono ${isCredit ? 'text-red-300' : ''}`}>{value}</span>
+                                    </div>
+                                  ))}
+                                </>
+                              );
+                            })()}
                             <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
                               <span>TOTAL (NZD)</span>
                               <span className={`font-mono ${isSelectedCreditNote ? 'text-red-400' : 'text-emerald-400'}`}>
-                                {formatNZD(selectedInvoice.total_amount)}
+                                {formatNZD(isSelectedCreditNote ? -Math.abs(selectedInvoice.total_amount) : selectedInvoice.total_amount)}
                               </span>
                             </div>
                           </>

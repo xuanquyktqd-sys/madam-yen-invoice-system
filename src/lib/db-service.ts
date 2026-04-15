@@ -475,20 +475,43 @@ export async function patchInvoiceWithItems(
   try {
     await client.query('BEGIN');
 
+    const invMetaRes = await client.query(
+      `SELECT type, total_amount, parent_invoice_id FROM invoices WHERE id=$1`,
+      [id]
+    );
+    const invMeta = (invMetaRes.rows[0] ?? {}) as { type?: string | null; total_amount?: unknown; parent_invoice_id?: string | null };
+    const isCreditNote =
+      String(invMeta.type ?? '').toLowerCase().includes('credit') ||
+      (toNumberOrNull(invMeta.total_amount) ?? 0) < 0 ||
+      !!invMeta.parent_invoice_id;
+
     // If items are provided, recompute totals server-side (manual/edit correctness)
     if (Array.isArray(invoiceItems)) {
-      const freight = toNumberOrNull((updates as { freight?: unknown }).freight) ?? 0;
+      const freightRaw = toNumberOrNull((updates as { freight?: unknown }).freight) ?? 0;
       const subTotalAbs = invoiceItems.reduce((sum, it) => {
         const q = Math.abs(toNumberOrNull(it.quantity) ?? 0);
         const p = Math.abs(toNumberOrNull(it.price) ?? 0);
         return sum + q * p;
       }, 0);
-      const subTotal = Math.round(subTotalAbs * 100) / 100;
-      const gstAmount = Math.round((subTotal + freight) * 0.15 * 100) / 100;
-      const totalAmount = Math.round((subTotal + freight + gstAmount) * 100) / 100;
-      (updates as Record<string, unknown>).sub_total = subTotal;
-      (updates as Record<string, unknown>).gst_amount = gstAmount;
-      (updates as Record<string, unknown>).total_amount = totalAmount;
+
+      if (isCreditNote) {
+        const subTotal = -Math.round(subTotalAbs * 100) / 100;
+        const freight = -Math.abs(freightRaw);
+        const gstAmount = Math.round(subTotal * 0.15 * 100) / 100;
+        const totalAmount = Math.round((subTotal + freight + gstAmount) * 100) / 100;
+        (updates as Record<string, unknown>).sub_total = subTotal;
+        (updates as Record<string, unknown>).freight = freight;
+        (updates as Record<string, unknown>).gst_amount = gstAmount;
+        (updates as Record<string, unknown>).total_amount = totalAmount;
+      } else {
+        const subTotal = Math.round(subTotalAbs * 100) / 100;
+        const gstAmount = Math.round((subTotal + freightRaw) * 0.15 * 100) / 100;
+        const totalAmount = Math.round((subTotal + freightRaw + gstAmount) * 100) / 100;
+        (updates as Record<string, unknown>).sub_total = subTotal;
+        (updates as Record<string, unknown>).freight = freightRaw;
+        (updates as Record<string, unknown>).gst_amount = gstAmount;
+        (updates as Record<string, unknown>).total_amount = totalAmount;
+      }
     }
 
     if (fields.length) {
@@ -506,17 +529,20 @@ export async function patchInvoiceWithItems(
         const item = invoiceItems[i];
         const description = item.description?.trim();
         if (!description) continue;
-        const quantity = toNumberOrNull(item.quantity);
-        const price = toNumberOrNull(item.price);
-        const amount = quantity !== null && price !== null ? Math.round(quantity * price * 100) / 100 : toNumberOrNull(item.amount_excl_gst);
+        const q0 = toNumberOrNull(item.quantity);
+        const p0 = toNumberOrNull(item.price);
+        const q = isCreditNote && q0 !== null ? -Math.abs(q0) : q0;
+        const p = p0 !== null ? Math.abs(p0) : p0;
+        const computed = q !== null && p !== null ? Math.round(q * p * 100) / 100 : toNumberOrNull(item.amount_excl_gst);
+        const amount = isCreditNote && computed !== null ? -Math.abs(computed) : computed;
         await insertInvoiceItemRow(client, {
           invoice_id: id,
           product_code: item.product_code ?? null,
           description,
           standard: item.standard ?? null,
-          quantity,
+          quantity: q,
           unit: item.unit ?? null,
-          price,
+          price: p,
           amount_excl_gst: amount,
           sort_order: i + 1,
         });
