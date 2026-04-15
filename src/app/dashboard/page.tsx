@@ -1487,87 +1487,98 @@ export default function DashboardPage() {
                             </div>
                             <div className="space-y-2">
                               {editItems.map((it, idx) => (
-                                <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                                  <input
-                                    value={it.product_code}
-                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
-                                    className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                                    placeholder="Code"
-                                  />
-                                  <input
-                                    value={it.description}
-                                    list="edit-product-options"
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      setEditItems((prev) => {
-                                        const next = prev.map((x, i) => i === idx ? { ...x, description: value } : x);
-                                        const match = editProductOptions.find((p) => p.name === value);
-                                        if (!match) return next;
-                                      return next.map((x, i) => {
-                                        if (i !== idx) return x;
-                                        return {
-                                          ...x,
-                                          product_code: x.product_code || (match.vendor_product_code ?? ''),
-                                          unit: x.unit || (match.unit ?? ''),
-                                          standard: x.standard || (match.standard ?? ''),
-                                        };
-                                      });
-                                    });
-                                  }}
-                                    className="sm:col-span-5 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
-                                    placeholder="Mô tả"
-                                  />
-                                  <input
-                                    value={it.quantity}
-                                    onChange={(e) => {
-                                      const quantity = e.target.value;
-                                      setEditItems((p) => p.map((x, i) => {
-                                        if (i !== idx) return x;
-                                        const next: typeof x = { ...x, quantity };
-                                        const q = toNumberOrNullInput(quantity) ?? 0;
-                                        const pr = toNumberOrNullInput(next.price) ?? 0;
-                                        next.amount_excl_gst = fmt2(q * pr);
-                                        return next;
-                                      }));
-                                    }}
-                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                                    placeholder="Qty"
-                                  />
-                                  <input
-                                    list="unit-options"
-                                    value={it.unit}
-                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
-                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                                    placeholder="Unit"
-                                  />
-                                  <input
-                                    value={it.price}
-                                    onChange={(e) => {
-                                      const price = e.target.value;
-                                      setEditItems((p) => p.map((x, i) => {
-                                        if (i !== idx) return x;
-                                        const next: typeof x = { ...x, price };
-                                        const q = toNumberOrNullInput(next.quantity) ?? 0;
-                                        const pr = toNumberOrNullInput(price) ?? 0;
-                                        next.amount_excl_gst = fmt2(q * pr);
-                                        return next;
-                                      }));
-                                    }}
-                                    className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                                    placeholder="Price"
-                                  />
-                                  <div className="flex gap-2 sm:col-span-2">
-                                    <div
-                                      className="flex-1 bg-transparent border border-slate-800 rounded-lg px-2 py-2 text-xs text-slate-300 font-mono select-none"
-                                      title="Tự tính (không nhập tay)"
-                                    >
-                                      {it.amount_excl_gst || '0.00'}
+                                <div key={idx} className="bg-slate-900 border border-slate-700 rounded-xl p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <input
+                                        value={it.description}
+                                        list="edit-product-options"
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          setEditItems((prev) => {
+                                            const next = prev.map((x, i) => i === idx ? { ...x, description: value } : x);
+                                            const match = editProductOptions.find((p) => p.name === value);
+                                            if (!match) return next;
+                                            return next.map((x, i) => {
+                                              if (i !== idx) return x;
+                                              return {
+                                                ...x,
+                                                product_code: x.product_code || (match.vendor_product_code ?? ''),
+                                                unit: x.unit || (match.unit ?? ''),
+                                                standard: x.standard || (match.standard ?? ''),
+                                              };
+                                            });
+                                          });
+                                        }}
+                                        className="w-full bg-transparent border border-slate-800 rounded-lg px-2 py-2 text-sm text-slate-100"
+                                        placeholder="Tên sản phẩm"
+                                      />
+                                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+                                        <input
+                                          value={it.product_code}
+                                          onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
+                                          className="w-28 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
+                                          placeholder="Code"
+                                        />
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            value={it.quantity}
+                                            onChange={(e) => {
+                                              const quantity = e.target.value;
+                                              setEditItems((p) => p.map((x, i) => {
+                                                if (i !== idx) return x;
+                                                const next: typeof x = { ...x, quantity };
+                                                const q = toNumberOrNullInput(quantity) ?? 0;
+                                                const pr = toNumberOrNullInput(next.price) ?? 0;
+                                                next.amount_excl_gst = fmt2(q * pr);
+                                                return next;
+                                              }));
+                                            }}
+                                            className="w-20 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
+                                            placeholder="Qty"
+                                          />
+                                          <input
+                                            list="unit-options"
+                                            value={it.unit}
+                                            onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
+                                            className="w-20 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
+                                            placeholder="Unit"
+                                          />
+                                        </div>
+                                        <input
+                                          value={it.price}
+                                          onChange={(e) => {
+                                            const price = e.target.value;
+                                            setEditItems((p) => p.map((x, i) => {
+                                              if (i !== idx) return x;
+                                              const next: typeof x = { ...x, price };
+                                              const q = toNumberOrNullInput(next.quantity) ?? 0;
+                                              const pr = toNumberOrNullInput(price) ?? 0;
+                                              next.amount_excl_gst = fmt2(q * pr);
+                                              return next;
+                                            }));
+                                          }}
+                                          className="w-24 bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono"
+                                          placeholder="Price"
+                                        />
+                                      </div>
                                     </div>
-                                    <button
-                                      onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
-                                      className="px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:bg-red-600 hover:text-white">
-                                      ✕
-                                    </button>
+
+                                    <div className="flex flex-col items-end gap-2">
+                                      <div
+                                        className="bg-transparent border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 font-mono select-none min-w-[92px] text-right"
+                                        title="Tự tính (không nhập tay)"
+                                      >
+                                        {it.amount_excl_gst || '0.00'}
+                                      </div>
+                                      <button
+                                        onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
+                                        className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:bg-red-600 hover:text-white"
+                                        title="Xoá dòng"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               ))}
