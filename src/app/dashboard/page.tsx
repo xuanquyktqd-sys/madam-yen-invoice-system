@@ -57,10 +57,9 @@ const calcTotalsFromRows = (
 ) => {
   const freight = toNumberOrNullInput(freightStr) ?? 0;
   const subAbs = rows.reduce((sum, r) => {
-    const amt = toNumberOrNullInput(r.amount_excl_gst);
-    if (amt !== null) return sum + amt;
     const q = toNumberOrNullInput(r.quantity) ?? 0;
     const p = toNumberOrNullInput(r.price) ?? 0;
+    // amount_excl_gst is always derived for manual/credit/edit inputs
     return sum + round2(q * p);
   }, 0);
   const subTotal = round2(subAbs);
@@ -142,7 +141,7 @@ export default function DashboardPage() {
     unit: string;
     price: string;
     amount_excl_gst: string;
-  }>>([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }]);
+  }>>([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }]);
 
   const [editMode, setEditMode] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -362,15 +361,36 @@ export default function DashboardPage() {
       gst_amount: '',
       total_amount: '',
     });
-    setManualItems([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }]);
+    setManualItems([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }]);
     setManualOpen(true);
   };
 
+  useEffect(() => {
+    if (!manualOpen) return;
+    const totals = calcTotalsFromRows(manualItems, manualForm.freight);
+    setManualForm((p) => {
+      if (p.sub_total === totals.sub_total && p.gst_amount === totals.gst_amount && p.total_amount === totals.total_amount) return p;
+      return { ...p, ...totals };
+    });
+  }, [manualOpen, manualItems, manualForm.freight]);
+
   const submitManualInvoice = async () => {
-    if (!manualForm.vendor_name.trim() || !manualForm.invoice_date.trim() || !manualForm.total_amount.trim()) {
-      showToast('Vui lòng nhập Nhà cung cấp, Ngày và Tổng tiền', 'error');
+    if (!manualForm.vendor_name.trim() || !manualForm.invoice_date.trim()) {
+      showToast('Vui lòng nhập Nhà cung cấp và Ngày', 'error');
       return;
     }
+
+    // Ensure amounts are always derived from quantity * price
+    const normalizedItems = manualItems
+      .map((it) => {
+        const q = toNumberOrNullInput(it.quantity) ?? 0;
+        const p = toNumberOrNullInput(it.price) ?? 0;
+        const amt = fmt2(q * p);
+        return { ...it, amount_excl_gst: amt };
+      })
+      .filter((it) => it.description.trim());
+
+    const totals = calcTotalsFromRows(normalizedItems, manualForm.freight);
 
     const payload = {
       vendor_name: manualForm.vendor_name.trim(),
@@ -378,11 +398,11 @@ export default function DashboardPage() {
       invoice_number: manualForm.invoice_number.trim() || null,
       invoice_date: manualForm.invoice_date,
       category: manualForm.category.trim() || null,
-      sub_total: toNumberOrNullInput(manualForm.sub_total),
-      freight: toNumberOrNullInput(manualForm.freight),
-      gst_amount: toNumberOrNullInput(manualForm.gst_amount),
-      total_amount: toNumberOrNullInput(manualForm.total_amount),
-      invoice_items: manualItems
+      sub_total: toNumberOrNullInput(totals.sub_total),
+      freight: toNumberOrNullInput(manualForm.freight) ?? 0,
+      gst_amount: toNumberOrNullInput(totals.gst_amount),
+      total_amount: toNumberOrNullInput(totals.total_amount),
+      invoice_items: normalizedItems
         .map((it) => ({
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
@@ -539,12 +559,27 @@ export default function DashboardPage() {
     return { sub_total: fmt2(sub), gst_amount: fmt2(gst), total_amount: fmt2(total) };
   })();
 
+  const isSelectedCreditNote =
+    (selectedInvoice?.type ?? '').toLowerCase().includes('credit') ||
+    (selectedInvoice?.total_amount ?? 0) < 0 ||
+    !!selectedInvoice?.parent_invoice_id;
+
   const saveEdit = async () => {
     if (!selectedInvoice) return;
-    if (!editForm.vendor_name.trim() || !editForm.invoice_date.trim() || !editForm.total_amount.trim()) {
-      showToast('Vui lòng nhập Nhà cung cấp, Ngày và Tổng tiền', 'error');
+    if (!editForm.vendor_name.trim() || !editForm.invoice_date.trim()) {
+      showToast('Vui lòng nhập Nhà cung cấp và Ngày', 'error');
       return;
     }
+
+    const normalizedEditItems = editItems
+      .map((it) => {
+        const q = toNumberOrNullInput(it.quantity) ?? 0;
+        const p = toNumberOrNullInput(it.price) ?? 0;
+        return { ...it, amount_excl_gst: fmt2(q * p) };
+      })
+      .filter((it) => it.description.trim());
+
+    const totals = calcTotalsFromRows(normalizedEditItems, editForm.freight);
 
     const payload = {
       id: selectedInvoice.id,
@@ -553,11 +588,11 @@ export default function DashboardPage() {
       invoice_number: editForm.invoice_number.trim() || null,
       invoice_date: editForm.invoice_date,
       category: editForm.category.trim() || null,
-      sub_total: toNumberOrNullInput(editForm.sub_total),
+      sub_total: toNumberOrNullInput(totals.sub_total),
       freight: toNumberOrNullInput(editForm.freight),
-      gst_amount: toNumberOrNullInput(editForm.gst_amount),
-      total_amount: toNumberOrNullInput(editForm.total_amount),
-      invoice_items: editItems
+      gst_amount: toNumberOrNullInput(totals.gst_amount),
+      total_amount: toNumberOrNullInput(totals.total_amount),
+      invoice_items: normalizedEditItems
         .map((it) => ({
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
@@ -798,11 +833,9 @@ export default function DashboardPage() {
                                   setCreditRows((p) => p.map((x, i) => {
                                     if (i !== idx) return x;
                                     const next = { ...x, quantity };
-                                    if (!next.amount_excl_gst.trim()) {
-                                      const q = toNumberOrNullInput(quantity) ?? 0;
-                                      const pr = toNumberOrNullInput(next.price) ?? 0;
-                                      next.amount_excl_gst = fmt2(q * pr);
-                                    }
+                                    const q = toNumberOrNullInput(quantity) ?? 0;
+                                    const pr = toNumberOrNullInput(next.price) ?? 0;
+                                    next.amount_excl_gst = fmt2(q * pr);
                                     return next;
                                   }));
                                 }}
@@ -819,11 +852,9 @@ export default function DashboardPage() {
                                   setCreditRows((p) => p.map((x, i) => {
                                     if (i !== idx) return x;
                                     const next = { ...x, price };
-                                    if (!next.amount_excl_gst.trim()) {
-                                      const q = toNumberOrNullInput(next.quantity) ?? 0;
-                                      const pr = toNumberOrNullInput(price) ?? 0;
-                                      next.amount_excl_gst = fmt2(q * pr);
-                                    }
+                                    const q = toNumberOrNullInput(next.quantity) ?? 0;
+                                    const pr = toNumberOrNullInput(price) ?? 0;
+                                    next.amount_excl_gst = fmt2(q * pr);
                                     return next;
                                   }));
                                 }}
@@ -835,7 +866,7 @@ export default function DashboardPage() {
                               <input
                                 inputMode="decimal"
                                 value={r.amount_excl_gst}
-                                onChange={(e) => setCreditRows((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
+                                readOnly
                                 className="w-36 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100 font-mono"
                                 placeholder="0.00"
                               />
@@ -858,7 +889,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
                     <span>TOTAL (NZD)</span>
-                    <span className="font-mono text-emerald-400">{formatNZD(Number(creditTotals.total_amount))}</span>
+                    <span className="font-mono text-red-400">{formatNZD(Number(creditTotals.total_amount))}</span>
                   </div>
                 </div>
 
@@ -943,31 +974,26 @@ export default function DashboardPage() {
                   </label>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {([
-                    ['Subtotal', 'sub_total'],
-                    ['Freight', 'freight'],
-                    ['GST', 'gst_amount'],
-                    ['Total *', 'total_amount'],
-                  ] as Array<[string, MoneyFieldKey]>).map(([label, key]) => (
-                    <label key={key} className="text-sm">
-                      <div className="text-slate-400 mb-1">{label}</div>
-                      <input
-                        inputMode="decimal"
-                        value={manualForm[key]}
-                        onChange={(e) => setManualForm((p) => ({ ...p, [key]: e.target.value }))}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
-                        placeholder="0.00"
-                      />
-                    </label>
-                  ))}
+                <div className="bg-slate-800 rounded-xl p-4 text-sm">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Subtotal</span>
+                    <span className="font-mono">{formatNZD(Number(manualForm.sub_total || '0'))}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-300 mt-1">
+                    <span>GST (15%)</span>
+                    <span className="font-mono">{formatNZD(Number(manualForm.gst_amount || '0'))}</span>
+                  </div>
+                  <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
+                    <span>TOTAL (NZD)</span>
+                    <span className="font-mono text-emerald-400">{formatNZD(Number(manualForm.total_amount || '0'))}</span>
+                  </div>
                 </div>
 
                 <div className="bg-slate-800 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-sm font-semibold text-slate-200">Mặt hàng (tuỳ chọn)</div>
                     <button
-                      onClick={() => setManualItems((p) => [...p, { product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }])}
+                      onClick={() => setManualItems((p) => [...p, { product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }])}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
                       + Thêm dòng
                     </button>
@@ -976,12 +1002,6 @@ export default function DashboardPage() {
                   <div className="space-y-2">
                     {manualItems.map((it, idx) => (
                       <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                        <input
-                          value={it.product_code}
-                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, product_code: e.target.value } : x))}
-                          className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Code"
-                        />
                         <input
                           value={it.description}
                           list="manual-product-options"
@@ -1002,41 +1022,54 @@ export default function DashboardPage() {
                               });
                             });
                           }}
-                          className="sm:col-span-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
-                          placeholder="Mô tả"
-                        />
-                        <input
-                          list="standard-options"
-                          value={it.standard}
-                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, standard: e.target.value } : x))}
-                          className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Standard"
+                          className="sm:col-span-5 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
+                          placeholder="Tên sản phẩm"
                         />
                         <input
                           value={it.quantity}
-                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))}
+                          onChange={(e) => {
+                            const quantity = e.target.value;
+                            setManualItems((p) => p.map((x, i) => {
+                              if (i !== idx) return x;
+                              const next = { ...x, quantity };
+                              const q = toNumberOrNullInput(quantity) ?? 0;
+                              const pr = toNumberOrNullInput(next.price) ?? 0;
+                              next.amount_excl_gst = fmt2(q * pr);
+                              return next;
+                            }));
+                          }}
                           className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Qty"
+                          placeholder="Số lượng"
                         />
                         <input
                           list="unit-options"
                           value={it.unit}
                           onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
                           className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Unit"
+                          placeholder="Đơn vị"
                         />
                         <input
                           value={it.price}
-                          onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                          onChange={(e) => {
+                            const price = e.target.value;
+                            setManualItems((p) => p.map((x, i) => {
+                              if (i !== idx) return x;
+                              const next = { ...x, price };
+                              const q = toNumberOrNullInput(next.quantity) ?? 0;
+                              const pr = toNumberOrNullInput(price) ?? 0;
+                              next.amount_excl_gst = fmt2(q * pr);
+                              return next;
+                            }));
+                          }}
                           className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Price"
+                          placeholder="Đơn giá"
                         />
-                        <div className="flex gap-2 sm:col-span-2">
+                        <div className="flex gap-2 sm:col-span-3">
                           <input
                             value={it.amount_excl_gst}
-                            onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
-                            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                            placeholder="Amount"
+                            readOnly
+                            className="flex-1 bg-slate-900/60 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 font-mono"
+                            placeholder="Thành tiền"
                           />
                           <button
                             onClick={() => setManualItems((p) => p.filter((_, i) => i !== idx))}
@@ -1431,11 +1464,9 @@ export default function DashboardPage() {
                                       setEditItems((p) => p.map((x, i) => {
                                         if (i !== idx) return x;
                                         const next: typeof x = { ...x, quantity };
-                                        if (!next.amount_excl_gst.trim()) {
-                                          const q = toNumberOrNullInput(quantity) ?? 0;
-                                          const pr = toNumberOrNullInput(next.price) ?? 0;
-                                          next.amount_excl_gst = fmt2(q * pr);
-                                        }
+                                        const q = toNumberOrNullInput(quantity) ?? 0;
+                                        const pr = toNumberOrNullInput(next.price) ?? 0;
+                                        next.amount_excl_gst = fmt2(q * pr);
                                         return next;
                                       }));
                                     }}
@@ -1456,11 +1487,9 @@ export default function DashboardPage() {
                                       setEditItems((p) => p.map((x, i) => {
                                         if (i !== idx) return x;
                                         const next: typeof x = { ...x, price };
-                                        if (!next.amount_excl_gst.trim()) {
-                                          const q = toNumberOrNullInput(next.quantity) ?? 0;
-                                          const pr = toNumberOrNullInput(price) ?? 0;
-                                          next.amount_excl_gst = fmt2(q * pr);
-                                        }
+                                        const q = toNumberOrNullInput(next.quantity) ?? 0;
+                                        const pr = toNumberOrNullInput(price) ?? 0;
+                                        next.amount_excl_gst = fmt2(q * pr);
                                         return next;
                                       }));
                                     }}
@@ -1470,9 +1499,9 @@ export default function DashboardPage() {
                                   <div className="flex gap-2 sm:col-span-2">
                                     <input
                                       value={it.amount_excl_gst}
-                                      onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, amount_excl_gst: e.target.value } : x))}
-                                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                                      placeholder="Amount"
+                                      readOnly
+                                      className="flex-1 bg-slate-900/60 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 font-mono"
+                                      placeholder="Thành tiền"
                                     />
                                     <button
                                       onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
@@ -1506,7 +1535,9 @@ export default function DashboardPage() {
                             ))}
                             <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
                               <span>TOTAL (NZD)</span>
-                              <span className="font-mono text-emerald-400">{formatNZD(selectedInvoice.total_amount)}</span>
+                              <span className={`font-mono ${isSelectedCreditNote ? 'text-red-400' : 'text-emerald-400'}`}>
+                                {formatNZD(selectedInvoice.total_amount)}
+                              </span>
                             </div>
                           </>
                         ) : (
@@ -1631,6 +1662,10 @@ export default function DashboardPage() {
                   <tbody>
                     {invoices.map((invoice, idx) => {
                       const sc = statusConfig[invoice.status];
+                      const isCredit =
+                        (invoice.type ?? '').toLowerCase().includes('credit') ||
+                        (invoice.total_amount ?? 0) < 0 ||
+                        !!invoice.parent_invoice_id;
                       return (
                         <tr
                           key={invoice.id}
@@ -1647,7 +1682,9 @@ export default function DashboardPage() {
                             <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 text-xs">{invoice.category ?? '—'}</span>
                           </td>
                           <td className="px-4 py-4 text-right font-mono text-slate-300">{formatNZD(invoice.gst_amount)}</td>
-                          <td className="px-4 py-4 text-right font-mono font-bold text-emerald-400">{formatNZD(invoice.total_amount)}</td>
+                          <td className={`px-4 py-4 text-right font-mono font-bold ${isCredit ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {formatNZD(invoice.total_amount)}
+                          </td>
                           <td className="px-4 py-4">
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${sc.bg} ${sc.text}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
@@ -1669,6 +1706,10 @@ export default function DashboardPage() {
             <div className="lg:hidden space-y-3">
               {invoices.map((invoice) => {
                 const sc = statusConfig[invoice.status];
+                const isCredit =
+                  (invoice.type ?? '').toLowerCase().includes('credit') ||
+                  (invoice.total_amount ?? 0) < 0 ||
+                  !!invoice.parent_invoice_id;
                 return (
                   <button
                     key={invoice.id}
@@ -1686,7 +1727,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex justify-between items-end">
                       <div className="text-xs text-slate-500">GST: <span className="text-slate-300">{formatNZD(invoice.gst_amount)}</span></div>
-                      <div className="text-xl font-black text-emerald-400">{formatNZD(invoice.total_amount)}</div>
+                      <div className={`text-xl font-black ${isCredit ? 'text-red-400' : 'text-emerald-400'}`}>{formatNZD(invoice.total_amount)}</div>
                     </div>
                   </button>
                 );

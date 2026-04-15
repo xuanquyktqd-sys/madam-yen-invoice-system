@@ -251,15 +251,27 @@ export async function createManualInvoice(input: ManualInvoiceInput): Promise<Sa
     const invoiceDate = input.invoice_date;
     if (!invoiceDate) return { success: false, error: 'invoice_date is required' };
 
-    const totalAmount = toNumberOrNull(input.total_amount);
-    if (totalAmount === null) return { success: false, error: 'total_amount is required' };
+    const freight = toNumberOrNull(input.freight) ?? 0;
+
+    const invoiceItems = Array.isArray(input.invoice_items) ? input.invoice_items : [];
+
+    // Compute totals from items when possible (preferred for manual entry)
+    const computedSubTotalAbs = invoiceItems.reduce((sum, it) => {
+      const q = Math.abs(toNumberOrNull(it.quantity) ?? 0);
+      const p = Math.abs(toNumberOrNull(it.price) ?? 0);
+      const amt = q * p;
+      return sum + amt;
+    }, 0);
+    const computedSubTotal = Math.round(computedSubTotalAbs * 100) / 100;
+    const computedGst = Math.round((computedSubTotal + freight) * 0.15 * 100) / 100;
+    const computedTotal = Math.round((computedSubTotal + freight + computedGst) * 100) / 100;
+
+    const totalAmount = toNumberOrNull(input.total_amount) ?? computedTotal;
 
     const existingId = await checkDuplicate(vendorName, invoiceDate, totalAmount);
     if (existingId) {
       return { success: false, invoiceId: existingId, duplicate: true };
     }
-
-    const invoiceItems = Array.isArray(input.invoice_items) ? input.invoice_items : [];
 
     await client.query('BEGIN');
 
@@ -278,8 +290,8 @@ export async function createManualInvoice(input: ManualInvoiceInput): Promise<Sa
         'NZD',
         true,
         toNumberOrNull(input.sub_total) ?? 0,
-        toNumberOrNull(input.freight) ?? 0,
-        toNumberOrNull(input.gst_amount) ?? 0,
+        freight,
+        toNumberOrNull(input.gst_amount) ?? computedGst,
         totalAmount,
         input.image_url ?? null,
         input.status ?? 'pending_review',
@@ -294,6 +306,10 @@ export async function createManualInvoice(input: ManualInvoiceInput): Promise<Sa
         const description = item.description?.trim();
         if (!description) continue;
 
+        const quantity = toNumberOrNull(item.quantity);
+        const price = toNumberOrNull(item.price);
+        const amount = quantity !== null && price !== null ? Math.round(quantity * price * 100) / 100 : toNumberOrNull(item.amount_excl_gst);
+
         await client.query(
           `INSERT INTO invoice_items
             (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
@@ -303,10 +319,10 @@ export async function createManualInvoice(input: ManualInvoiceInput): Promise<Sa
             item.product_code ?? null,
             description,
             item.standard ?? null,
-            toNumberOrNull(item.quantity),
+            quantity,
             item.unit ?? null,
-            toNumberOrNull(item.price),
-            toNumberOrNull(item.amount_excl_gst),
+            price,
+            amount,
           ]
         );
       }
@@ -346,6 +362,22 @@ export async function patchInvoiceWithItems(
   try {
     await client.query('BEGIN');
 
+    // If items are provided, recompute totals server-side (manual/edit correctness)
+    if (Array.isArray(invoiceItems)) {
+      const freight = toNumberOrNull((updates as { freight?: unknown }).freight) ?? 0;
+      const subTotalAbs = invoiceItems.reduce((sum, it) => {
+        const q = Math.abs(toNumberOrNull(it.quantity) ?? 0);
+        const p = Math.abs(toNumberOrNull(it.price) ?? 0);
+        return sum + q * p;
+      }, 0);
+      const subTotal = Math.round(subTotalAbs * 100) / 100;
+      const gstAmount = Math.round((subTotal + freight) * 0.15 * 100) / 100;
+      const totalAmount = Math.round((subTotal + freight + gstAmount) * 100) / 100;
+      (updates as Record<string, unknown>).sub_total = subTotal;
+      (updates as Record<string, unknown>).gst_amount = gstAmount;
+      (updates as Record<string, unknown>).total_amount = totalAmount;
+    }
+
     if (fields.length) {
       const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
       const values = fields.map((f) => updates[f]);
@@ -360,6 +392,9 @@ export async function patchInvoiceWithItems(
       for (const item of invoiceItems) {
         const description = item.description?.trim();
         if (!description) continue;
+        const quantity = toNumberOrNull(item.quantity);
+        const price = toNumberOrNull(item.price);
+        const amount = quantity !== null && price !== null ? Math.round(quantity * price * 100) / 100 : toNumberOrNull(item.amount_excl_gst);
         await client.query(
           `INSERT INTO invoice_items
             (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
@@ -369,10 +404,10 @@ export async function patchInvoiceWithItems(
             item.product_code ?? null,
             description,
             item.standard ?? null,
-            toNumberOrNull(item.quantity),
+            quantity,
             item.unit ?? null,
-            toNumberOrNull(item.price),
-            toNumberOrNull(item.amount_excl_gst),
+            price,
+            amount,
           ]
         );
       }
@@ -593,7 +628,8 @@ export async function createCreditNoteFromInvoice(input: CreateCreditNoteInput):
         if (qty === null || qty <= 0) return null;
 
         const price = toNumberOrNull(it.price) ?? toNumberOrNull(row.price) ?? 0;
-        const amount = toNumberOrNull(it.amount_excl_gst) ?? round2(qty * price);
+        // For manual credit notes: amount is always derived from qty * price
+        const amount = round2(qty * price);
 
         return {
           product_code: (row.product_code as string | null) ?? null,
