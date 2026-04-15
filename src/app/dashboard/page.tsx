@@ -200,6 +200,7 @@ export default function DashboardPage() {
   }>>([]);
 
   const toDateInput = (value: string) => (value || '').slice(0, 10);
+  const formatDisplayDate = (value: string) => toDateInput(value);
 
   const isCreditInvoice = (inv: Invoice | null): boolean =>
     !!inv && (
@@ -1362,12 +1363,14 @@ export default function DashboardPage() {
             <div className="min-h-full flex items-start justify-center p-4 py-8">
               <div className="w-full max-w-6xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
                 {/* Review header */}
-	                <div className="px-6 py-4 pr-16 border-b border-slate-800 flex items-center justify-between relative">
+                <div className="px-6 py-4 pr-28 border-b border-slate-800 flex items-center justify-between relative">
                   <div>
                     <h2 className="font-bold text-white text-lg">{selectedInvoice.vendor_name}</h2>
-                    <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {selectedInvoice.invoice_date}</p>
+                    <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {formatDisplayDate(selectedInvoice.invoice_date)}</p>
                   </div>
                   <div className="flex items-center gap-2 sm:gap-3">
+                  </div>
+                  <div className="absolute right-4 top-4 flex items-center gap-2">
                     <button
                       type="button"
                       aria-label="Mở menu hành động"
@@ -1379,17 +1382,17 @@ export default function DashboardPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                       </svg>
                     </button>
+                    <button
+                      aria-label="Đóng"
+                      onClick={() => { setReviewMenuOpen(false); setSelectedInvoice(null); setImageZoom(1); setImageRotation(0); setEditMode(false); }}
+                      className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-	                  <button
-	                    aria-label="Đóng"
-	                    onClick={() => { setReviewMenuOpen(false); setSelectedInvoice(null); setImageZoom(1); setImageRotation(0); setEditMode(false); }}
-	                    className="absolute right-4 top-4 w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
-	                  >
-	                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-	                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-	                    </svg>
-	                  </button>
-	                </div>
+                </div>
 
                 {/* Review actions menu */}
                 {reviewMenuOpen && (
@@ -1539,7 +1542,7 @@ export default function DashboardPage() {
                               ['Nhà cung cấp', selectedInvoice.vendor_name],
                               ['GST Number', selectedInvoice.vendor_gst_number ?? '—'],
                               ['Số hóa đơn', selectedInvoice.invoice_number ?? '—'],
-                              ['Ngày', selectedInvoice.invoice_date],
+                              ['Ngày', formatDisplayDate(selectedInvoice.invoice_date)],
                               ['Loại', (() => {
                                 const isCredit = isSelectedCreditNote;
                                 if (isCredit) return 'Credit Note';
@@ -1986,7 +1989,7 @@ export default function DashboardPage() {
                           className={`border-b border-slate-800/50 hover:bg-slate-800/50 cursor-pointer transition-colors group
                             ${idx % 2 === 0 ? '' : 'bg-slate-900/50'}`}
                           onClick={() => setSelectedInvoice(invoice)}>
-                          <td className="px-4 py-4 text-slate-300 font-mono text-xs">{invoice.invoice_date}</td>
+                          <td className="px-4 py-4 text-slate-300 font-mono text-xs">{formatDisplayDate(invoice.invoice_date)}</td>
                           <td className="px-4 py-4">
                             <div className="font-semibold text-white">{invoice.vendor_name}</div>
                             {invoice.vendor_gst_number && <div className="text-xs text-slate-500">GST: {invoice.vendor_gst_number}</div>}
@@ -2032,7 +2035,7 @@ export default function DashboardPage() {
                     <div className="flex justify-between items-start mb-3">
                       <div>
                         <p className="font-bold text-white">{invoice.vendor_name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{invoice.invoice_date} · #{invoice.invoice_number ?? '—'}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{formatDisplayDate(invoice.invoice_date)} · #{invoice.invoice_number ?? '—'}</p>
                       </div>
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${sc.bg} ${sc.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
