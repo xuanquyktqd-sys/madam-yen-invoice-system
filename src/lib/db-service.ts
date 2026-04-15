@@ -54,6 +54,8 @@ async function insertInvoiceItemRow(
     sort_order: number;
   }
 ) {
+  const sp = 'sp_invoice_item_insert';
+  await client.query(`SAVEPOINT ${sp}`);
   try {
     await client.query(
       `INSERT INTO invoice_items
@@ -71,11 +73,20 @@ async function insertInvoiceItemRow(
         row.sort_order,
       ]
     );
+    await client.query(`RELEASE SAVEPOINT ${sp}`);
   } catch (err) {
-    if (!isMissingColumnError(err, 'sort_order')) throw err;
+    // Any error inside a transaction aborts it unless we roll back to a savepoint.
+    await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+
+    if (!isMissingColumnError(err, 'sort_order')) {
+      await client.query(`RELEASE SAVEPOINT ${sp}`);
+      throw err;
+    }
+
+    // Backward-compatible insert when DB hasn't been migrated to add sort_order yet.
     await client.query(
       `INSERT INTO invoice_items
-        (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
+         (invoice_id, product_code, description, standard, quantity, unit, price, amount_excl_gst)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
         row.invoice_id,
@@ -88,6 +99,8 @@ async function insertInvoiceItemRow(
         row.amount_excl_gst,
       ]
     );
+
+    await client.query(`RELEASE SAVEPOINT ${sp}`);
   }
 }
 
