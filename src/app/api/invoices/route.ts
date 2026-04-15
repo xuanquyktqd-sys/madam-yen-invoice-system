@@ -4,7 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listInvoices, patchInvoice } from '@/lib/db-service';
+import { deleteInvoice, getInvoiceImageUrl, listInvoices, patchInvoice } from '@/lib/db-service';
+import { deleteInvoiceImageByPublicUrl } from '@/lib/storage-service';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -40,6 +41,37 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[API/invoices PATCH]', err);
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const id = (body as { id?: string })?.id ?? request.nextUrl.searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Invoice ID required' }, { status: 400 });
+    }
+
+    const imageUrl = await getInvoiceImageUrl(id);
+
+    const ok = await deleteInvoice(id);
+    if (!ok) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    if (imageUrl) {
+      try {
+        await deleteInvoiceImageByPublicUrl(imageUrl);
+      } catch (err) {
+        console.warn('[API/invoices DELETE] Storage cleanup failed:', (err as Error).message);
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[API/invoices DELETE]', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

@@ -43,7 +43,7 @@ export async function uploadInvoiceImage(
 ): Promise<string> {
   const storagePath = buildStoragePath(vendorName, invoiceDate);
 
-  const { data, error } = await supabaseAdmin.storage
+  const { error } = await supabaseAdmin.storage
     .from(BUCKET)
     .upload(storagePath, imageBuffer, {
       contentType: 'image/jpeg',
@@ -63,4 +63,27 @@ export async function uploadInvoiceImage(
 
   console.log(`[Storage] ✅ Uploaded: ${storagePath}`);
   return urlData.publicUrl;
+}
+
+function tryGetStoragePathFromPublicUrl(publicUrl: string): string | null {
+  try {
+    const url = new URL(publicUrl);
+    const prefix = `/storage/v1/object/public/${BUCKET}/`;
+    if (!url.pathname.startsWith(prefix)) return null;
+    return decodeURIComponent(url.pathname.slice(prefix.length));
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteInvoiceImageByPublicUrl(publicUrl: string): Promise<boolean> {
+  const path = tryGetStoragePathFromPublicUrl(publicUrl);
+  if (!path) return false;
+
+  const { error } = await supabaseAdmin.storage.from(BUCKET).remove([path]);
+  if (error) {
+    throw new Error(`Storage delete failed: ${error.message}`);
+  }
+  console.log(`[Storage] ✅ Deleted: ${path}`);
+  return true;
 }

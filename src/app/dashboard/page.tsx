@@ -178,6 +178,28 @@ export default function DashboardPage() {
     }
   };
 
+  // ── Delete invoice ─────────────────────────────────────────────────────────
+  const deleteInvoice = async (id: string) => {
+    const ok = window.confirm('Xoá hóa đơn này? Hành động này không thể hoàn tác.');
+    if (!ok) return;
+
+    const res = await fetch('/api/invoices', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+
+    if (res.ok) {
+      showToast('🗑️ Đã xoá hóa đơn', 'success');
+      if (selectedInvoice?.id === id) setSelectedInvoice(null);
+      await fetchInvoices();
+      return;
+    }
+
+    const json = await res.json().catch(() => ({}));
+    showToast(json.error ?? 'Không xoá được hóa đơn', 'error');
+  };
+
   // ── Export CSV ─────────────────────────────────────────────────────────────
   const exportCSV = () => {
     const rows = [
@@ -374,6 +396,11 @@ export default function DashboardPage() {
                     <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {selectedInvoice.invoice_date}</p>
                   </div>
                   <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => deleteInvoice(selectedInvoice.id)}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-red-600 text-slate-200 hover:text-white text-sm font-semibold transition-all">
+                      🗑️ Xoá
+                    </button>
                     {selectedInvoice.status === 'pending_review' && (
                       <>
                         <button

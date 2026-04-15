@@ -208,3 +208,15 @@ export async function patchInvoice(
   );
   return true;
 }
+
+// ── Get invoice image url ─────────────────────────────────────────────────
+export async function getInvoiceImageUrl(id: string): Promise<string | null> {
+  const res = await pool.query(`SELECT image_url FROM invoices WHERE id=$1`, [id]);
+  return res.rows[0]?.image_url ?? null;
+}
+
+// ── Delete invoice (cascades to invoice_items) ────────────────────────────
+export async function deleteInvoice(id: string): Promise<boolean> {
+  const res = await pool.query(`DELETE FROM invoices WHERE id=$1`, [id]);
+  return (res.rowCount ?? 0) > 0;
+}
