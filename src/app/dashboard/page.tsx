@@ -127,7 +127,6 @@ export default function DashboardPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [vendorOptions, setVendorOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
-  const [standardOptions, setStandardOptions] = useState<string[]>([]);
   const [manualProductOptions, setManualProductOptions] = useState<Array<{
     name: string;
     vendor_product_code: string | null;
@@ -155,11 +154,10 @@ export default function DashboardPage() {
     product_code: string;
     description: string;
     quantity: string;
-    standard: string;
     unit: string;
     price: string;
     amount_excl_gst: string;
-  }>>([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }]);
+  }>>([{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '0.00' }]);
 
   const [editMode, setEditMode] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -273,11 +271,9 @@ export default function DashboardPage() {
     void Promise.all([
       fetch('/api/catalog/vendors').then((r) => r.json()).catch(() => ({})),
       fetch('/api/catalog/units').then((r) => r.json()).catch(() => ({})),
-      fetch('/api/catalog/standards').then((r) => r.json()).catch(() => ({})),
-    ]).then(([v, u, s]) => {
+    ]).then(([v, u]) => {
       setVendorOptions(Array.isArray(v?.vendors) ? v.vendors : []);
       setUnitOptions(Array.isArray(u?.units) ? u.units : []);
-      setStandardOptions(Array.isArray(s?.standards) ? s.standards : []);
     });
   }, []);
 
@@ -438,7 +434,7 @@ export default function DashboardPage() {
       gst_amount: '',
       total_amount: '',
     });
-    setManualItems([{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }]);
+    setManualItems([{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '0.00' }]);
     setManualOpen(true);
   };
 
@@ -484,7 +480,6 @@ export default function DashboardPage() {
           product_code: it.product_code.trim() || null,
           description: it.description.trim(),
           quantity: toNumberOrNullInput(it.quantity),
-          standard: it.standard.trim() || null,
           unit: it.unit.trim() || null,
           price: toNumberOrNullInput(it.price),
           amount_excl_gst: toNumberOrNullInput(it.amount_excl_gst),
@@ -754,11 +749,6 @@ export default function DashboardPage() {
       <datalist id="unit-options">
         {unitOptions.map((u) => (
           <option key={u} value={u} />
-        ))}
-      </datalist>
-      <datalist id="standard-options">
-        {standardOptions.map((s) => (
-          <option key={s} value={s} />
         ))}
       </datalist>
       <datalist id="manual-product-options">
@@ -1070,7 +1060,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-sm font-semibold text-slate-200">Mặt hàng (tuỳ chọn)</div>
                     <button
-                      onClick={() => setManualItems((p) => [{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '0.00' }, ...p])}
+                      onClick={() => setManualItems((p) => [{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '0.00' }, ...p])}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
                       + Thêm dòng
                     </button>
@@ -1094,12 +1084,11 @@ export default function DashboardPage() {
                                   ...x,
                                   product_code: x.product_code || (match.vendor_product_code ?? ''),
                                   unit: x.unit || (match.unit ?? ''),
-                                  standard: x.standard || (match.standard ?? ''),
                                 };
                               });
                             });
                           }}
-                          className="sm:col-span-5 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
+                          className="sm:col-span-6 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
                           placeholder="Tên sản phẩm"
                         />
                         <input
@@ -1142,12 +1131,12 @@ export default function DashboardPage() {
                           placeholder="Đơn giá"
                         />
                         <div className="flex gap-2 sm:col-span-3">
-                          <input
-                            value={it.amount_excl_gst}
-                            readOnly
-                            className="flex-1 bg-slate-900/60 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 font-mono"
-                            placeholder="Thành tiền"
-                          />
+                          <div
+                            className="flex-1 bg-transparent border border-slate-800 rounded-lg px-2 py-2 text-xs text-slate-300 font-mono select-none"
+                            title="Tự tính (không nhập tay)"
+                          >
+                            {it.amount_excl_gst || '0.00'}
+                          </div>
                           <button
                             onClick={() => setManualItems((p) => p.filter((_, i) => i !== idx))}
                             className="px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:bg-red-600 hover:text-white">
@@ -1471,14 +1460,15 @@ export default function DashboardPage() {
                             {selectedInvoice.invoice_items?.map((item, idx) => (
                               <div key={item.id ?? idx} className="bg-slate-800 rounded-xl p-3 text-sm">
                                 <div className="flex justify-between gap-2 mb-1">
-                                  <span className="text-white font-medium leading-tight flex-1">{item.description}</span>
+                                  <span className="text-white font-medium leading-tight flex-1">
+                                    {item.description}{item.standard ? ` · ${item.standard}` : ''}
+                                  </span>
                                   <span className="text-emerald-400 font-mono font-bold whitespace-nowrap">
                                     {formatNZD(item.amount_excl_gst)}
                                   </span>
                                 </div>
                                 <div className="flex gap-4 text-xs text-slate-400">
                                   {item.product_code && <span className="font-mono">{item.product_code}</span>}
-                                  {item.standard && <span className="font-mono">{item.standard}</span>}
                                   <span>SL: <span className="text-slate-200">{item.quantity} {item.unit}</span></span>
                                   <span>Đơn giá: <span className="text-slate-200">{formatNZD(item.price)}</span></span>
                                 </div>
@@ -1513,26 +1503,19 @@ export default function DashboardPage() {
                                         const next = prev.map((x, i) => i === idx ? { ...x, description: value } : x);
                                         const match = editProductOptions.find((p) => p.name === value);
                                         if (!match) return next;
-                                        return next.map((x, i) => {
-                                          if (i !== idx) return x;
-                                          return {
-                                            ...x,
-                                            product_code: x.product_code || (match.vendor_product_code ?? ''),
-                                            unit: x.unit || (match.unit ?? ''),
-                                            standard: x.standard || (match.standard ?? ''),
-                                          };
-                                        });
+                                      return next.map((x, i) => {
+                                        if (i !== idx) return x;
+                                        return {
+                                          ...x,
+                                          product_code: x.product_code || (match.vendor_product_code ?? ''),
+                                          unit: x.unit || (match.unit ?? ''),
+                                          standard: x.standard || (match.standard ?? ''),
+                                        };
                                       });
-                                    }}
-                                    className="sm:col-span-4 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
+                                    });
+                                  }}
+                                    className="sm:col-span-5 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
                                     placeholder="Mô tả"
-                                  />
-                                  <input
-                                    list="standard-options"
-                                    value={it.standard}
-                                    onChange={(e) => setEditItems((p) => p.map((x, i) => i === idx ? { ...x, standard: e.target.value } : x))}
-                                    className="sm:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                                    placeholder="Standard"
                                   />
                                   <input
                                     value={it.quantity}
@@ -1574,12 +1557,12 @@ export default function DashboardPage() {
                                     placeholder="Price"
                                   />
                                   <div className="flex gap-2 sm:col-span-2">
-                                    <input
-                                      value={it.amount_excl_gst}
-                                      readOnly
-                                      className="flex-1 bg-slate-900/60 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 font-mono"
-                                      placeholder="Thành tiền"
-                                    />
+                                    <div
+                                      className="flex-1 bg-transparent border border-slate-800 rounded-lg px-2 py-2 text-xs text-slate-300 font-mono select-none"
+                                      title="Tự tính (không nhập tay)"
+                                    >
+                                      {it.amount_excl_gst || '0.00'}
+                                    </div>
                                     <button
                                       onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
                                       className="px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:bg-red-600 hover:text-white">
