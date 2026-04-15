@@ -1362,64 +1362,34 @@ export default function DashboardPage() {
             <div className="min-h-full flex items-start justify-center p-4 py-8">
               <div className="w-full max-w-6xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
                 {/* Review header */}
-                <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+	                <div className="px-6 py-4 pr-16 border-b border-slate-800 flex items-center justify-between relative">
                   <div>
                     <h2 className="font-bold text-white text-lg">{selectedInvoice.vendor_name}</h2>
                     <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {selectedInvoice.invoice_date}</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {!editMode ? (
-                      <button
-                        onClick={startEdit}
-                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-sm font-semibold transition-all">
-                        ✏️ Sửa
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          disabled={editSaving}
-                          onClick={cancelEdit}
-                          className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold transition-all disabled:opacity-60">
-                          Huỷ
-                        </button>
-                        <button
-                          disabled={editSaving}
-                          onClick={saveEdit}
-                          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-all disabled:opacity-60">
-                          {editSaving ? 'Đang lưu...' : 'Lưu'}
-                        </button>
-                      </>
-                    )}
-                    {selectedInvoice.status === 'pending_review' && (
-                      <button
-                        onClick={() => updateStatus(selectedInvoice.id, 'approved')}
-                        disabled={editMode}
-                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-all">
-                        ✅ Duyệt
-                      </button>
-                    )}
-                    {!editMode && (
-                      <button
-                        type="button"
-                        aria-label="Mở menu hành động"
-                        onClick={() => setReviewMenuOpen(true)}
-                        className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
-                        title="Menu"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                        </svg>
-                      </button>
-                    )}
+                  <div className="flex items-center gap-2 sm:gap-3">
                     <button
-                      onClick={() => { setReviewMenuOpen(false); setSelectedInvoice(null); setImageZoom(1); setImageRotation(0); setEditMode(false); }}
-                      className="text-slate-400 hover:text-white transition-colors p-2">
+                      type="button"
+                      aria-label="Mở menu hành động"
+                      onClick={() => setReviewMenuOpen(true)}
+                      className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
+                      title="Menu"
+                    >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                       </svg>
                     </button>
                   </div>
-                </div>
+	                  <button
+	                    aria-label="Đóng"
+	                    onClick={() => { setReviewMenuOpen(false); setSelectedInvoice(null); setImageZoom(1); setImageRotation(0); setEditMode(false); }}
+	                    className="absolute right-4 top-4 w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
+	                  >
+	                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+	                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+	                    </svg>
+	                  </button>
+	                </div>
 
                 {/* Review actions menu */}
                 {reviewMenuOpen && (
@@ -1439,7 +1409,36 @@ export default function DashboardPage() {
                         </button>
                       </div>
                       <div className="p-3 space-y-2">
-                        {!isSelectedCreditNote && (
+                        {!editMode ? (
+                          <button
+                            onClick={() => { setReviewMenuOpen(false); startEdit(); }}
+                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
+                          >
+                            <span className="font-semibold">✏️ Sửa</span>
+                            <span className="text-slate-400">→</span>
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              disabled={editSaving}
+                              onClick={() => { setReviewMenuOpen(false); saveEdit(); }}
+                              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 disabled:opacity-60"
+                            >
+                              <span className="font-semibold">{editSaving ? 'Đang lưu...' : 'Lưu'}</span>
+                              <span className="text-emerald-100">→</span>
+                            </button>
+                            <button
+                              disabled={editSaving}
+                              onClick={() => { setReviewMenuOpen(false); cancelEdit(); }}
+                              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 disabled:opacity-60"
+                            >
+                              <span className="font-semibold">Huỷ sửa</span>
+                              <span className="text-slate-400">→</span>
+                            </button>
+                          </>
+                        )}
+
+                        {!isSelectedCreditNote && !editMode && (
                           <button
                             onClick={() => { setReviewMenuOpen(false); openCreditNote(); }}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
@@ -1448,22 +1447,35 @@ export default function DashboardPage() {
                             <span className="text-slate-400">→</span>
                           </button>
                         )}
-                        {selectedInvoice.status === 'pending_review' && (
+
+                        {selectedInvoice.status === 'pending_review' && !editMode && (
+                          <>
+                            <button
+                              onClick={() => { setReviewMenuOpen(false); updateStatus(selectedInvoice.id, 'approved'); }}
+                              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500"
+                            >
+                              <span className="font-semibold">✅ Duyệt</span>
+                              <span className="text-emerald-100">→</span>
+                            </button>
+                            <button
+                              onClick={() => { setReviewMenuOpen(false); updateStatus(selectedInvoice.id, 'rejected'); }}
+                              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white border border-red-500"
+                            >
+                              <span className="font-semibold">❌ Từ chối</span>
+                              <span className="text-red-100">→</span>
+                            </button>
+                          </>
+                        )}
+
+                        {!editMode && (
                           <button
-                            onClick={() => { setReviewMenuOpen(false); updateStatus(selectedInvoice.id, 'rejected'); }}
-                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-red-950/30 hover:bg-red-950/50 text-red-200 border border-red-900/60"
+                            onClick={() => { setReviewMenuOpen(false); deleteInvoice(selectedInvoice.id); }}
+                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-600 text-slate-100 border border-slate-700"
                           >
-                            <span className="font-semibold">❌ Từ chối</span>
-                            <span className="text-red-300">→</span>
+                            <span className="font-semibold">🗑️ Xoá</span>
+                            <span className="text-slate-400">→</span>
                           </button>
                         )}
-                        <button
-                          onClick={() => { setReviewMenuOpen(false); deleteInvoice(selectedInvoice.id); }}
-                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-600 text-slate-100 border border-slate-700"
-                        >
-                          <span className="font-semibold">🗑️ Xoá</span>
-                          <span className="text-slate-400">→</span>
-                        </button>
                       </div>
                     </div>
                   </div>
