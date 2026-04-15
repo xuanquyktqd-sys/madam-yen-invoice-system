@@ -266,6 +266,46 @@ CREATE TRIGGER invoice_items_before_ins_upd
 BEFORE INSERT OR UPDATE ON invoice_items
 FOR EACH ROW
 EXECUTE FUNCTION trg_invoice_items_set_catalog_ids();
+
+-- Catalog indexes
+CREATE INDEX IF NOT EXISTS idx_invoices_vendor_id ON invoices(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_items_product_id ON invoice_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_items_unit_id ON invoice_items(unit_id);
+CREATE INDEX IF NOT EXISTS idx_items_standard_id ON invoice_items(standard_id);
+
+-- Enable RLS (service role / postgres bypasses this when applicable)
+ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE units ENABLE ROW LEVEL SECURITY;
+ALTER TABLE standards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE restaurant_products ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='vendors' AND policyname='Service role full access on vendors') THEN
+    CREATE POLICY "Service role full access on vendors"
+      ON vendors FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='units' AND policyname='Service role full access on units') THEN
+    CREATE POLICY "Service role full access on units"
+      ON units FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='standards' AND policyname='Service role full access on standards') THEN
+    CREATE POLICY "Service role full access on standards"
+      ON standards FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='restaurant_products' AND policyname='Service role full access on restaurant_products') THEN
+    CREATE POLICY "Service role full access on restaurant_products"
+      ON restaurant_products FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+END $$;
 `;
 
 export async function POST() {

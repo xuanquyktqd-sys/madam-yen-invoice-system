@@ -305,6 +305,46 @@ async function run() {
       FOR EACH ROW
       EXECUTE FUNCTION trg_invoice_items_set_catalog_ids()`,
     },
+
+    { name: 'INDEX: invoices.vendor_id', sql: `CREATE INDEX IF NOT EXISTS idx_invoices_vendor_id ON invoices(vendor_id)` },
+    { name: 'INDEX: items.product_id', sql: `CREATE INDEX IF NOT EXISTS idx_items_product_id ON invoice_items(product_id)` },
+    { name: 'INDEX: items.unit_id', sql: `CREATE INDEX IF NOT EXISTS idx_items_unit_id ON invoice_items(unit_id)` },
+    { name: 'INDEX: items.standard_id', sql: `CREATE INDEX IF NOT EXISTS idx_items_standard_id ON invoice_items(standard_id)` },
+
+    { name: 'RLS: vendors', sql: `ALTER TABLE vendors ENABLE ROW LEVEL SECURITY` },
+    { name: 'RLS: units', sql: `ALTER TABLE units ENABLE ROW LEVEL SECURITY` },
+    { name: 'RLS: standards', sql: `ALTER TABLE standards ENABLE ROW LEVEL SECURITY` },
+    { name: 'RLS: restaurant_products', sql: `ALTER TABLE restaurant_products ENABLE ROW LEVEL SECURITY` },
+    {
+      name: 'POLICY: catalog tables',
+      sql: `DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='vendors' AND policyname='Service role full access on vendors') THEN
+          CREATE POLICY "Service role full access on vendors"
+            ON vendors FOR ALL
+            USING (true)
+            WITH CHECK (true);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='units' AND policyname='Service role full access on units') THEN
+          CREATE POLICY "Service role full access on units"
+            ON units FOR ALL
+            USING (true)
+            WITH CHECK (true);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='standards' AND policyname='Service role full access on standards') THEN
+          CREATE POLICY "Service role full access on standards"
+            ON standards FOR ALL
+            USING (true)
+            WITH CHECK (true);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='restaurant_products' AND policyname='Service role full access on restaurant_products') THEN
+          CREATE POLICY "Service role full access on restaurant_products"
+            ON restaurant_products FOR ALL
+            USING (true)
+            WITH CHECK (true);
+        END IF;
+      END $$`,
+    },
   ];
 
   for (const { name, sql } of statements) {
