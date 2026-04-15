@@ -179,10 +179,10 @@ async function callGemini(imageBuffer: Buffer, modelName: string): Promise<Invoi
  *  2. On timeout/error → fallback to gemini-2.5-flash (fast + accurate)
  */
 export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceData> {
-  const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY ?? 'gemini-2.5-pro';
-  const FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK ?? 'gemini-2.5-flash';
+  // User choice: always use Flash as primary; no fallback model.
+  const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY ?? 'gemini-2.5-flash';
   const TIMEOUT_MS = 50_000;
-  const MAX_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.GEMINI_RETRY_ATTEMPTS ?? 3)));
+  const MAX_ATTEMPTS = Math.max(1, Math.min(3, Number(process.env.GEMINI_RETRY_ATTEMPTS ?? 3)));
 
   console.log(`[OCR] Trying ${PRIMARY_MODEL}...`);
 
@@ -249,23 +249,15 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
     return result;
   } catch (primaryError) {
     const err = primaryError as Error;
-    console.warn(`[OCR] ⚠️ ${PRIMARY_MODEL} failed (${err.message}). Falling back to ${FALLBACK_MODEL}...`);
-
-    try {
-      const fallbackResult = await callWithRetry(FALLBACK_MODEL);
-      console.log(`[OCR] ✅ ${FALLBACK_MODEL} fallback succeeded`);
-      return fallbackResult;
-    } catch (fallbackError) {
-      console.error(`[OCR] ❌ Both models failed.`, fallbackError);
-      const msg = (fallbackError as Error).message || 'Unknown error';
-      const status = getHttpStatus(fallbackError);
-      if (status === 503 || msg.includes('high demand')) {
-        throw new Error('MODEL_HIGH_DEMAND');
-      }
-      if (msg.includes('OCR_BAD_JSON') || msg.includes('Unexpected token')) {
-        throw new Error('OCR_OUTPUT_INVALID');
-      }
-      throw new Error(`OCR failed: ${msg}`);
+    console.error(`[OCR] ❌ ${PRIMARY_MODEL} failed after retries.`, err);
+    const msg = err.message || 'Unknown error';
+    const status = getHttpStatus(primaryError);
+    if (status === 503 || msg.includes('high demand')) {
+      throw new Error('MODEL_HIGH_DEMAND');
     }
+    if (msg.includes('OCR_BAD_JSON') || msg.includes('Unexpected token')) {
+      throw new Error('OCR_OUTPUT_INVALID');
+    }
+    throw new Error(`OCR failed: ${msg}`);
   }
 }

@@ -343,18 +343,19 @@ export default function DashboardPage() {
       const fd = new FormData();
       fd.append('image', previewFile);
 
-      setProcessingMsg('Đang chạy OCR (Gemini, tự động retry)...');
+      setProcessingMsg('Đang chạy OCR (Gemini Flash, tự động retry tối đa 3 lần)...');
       const res = await fetch('/api/process', { method: 'POST', body: fd });
       const { json, text } = await safeReadJson(res);
+      const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
 
       if (res.status === 409) {
-        showToast(`⚠️ Hóa đơn trùng lặp! ${json?.warning ?? ''}`.trim(), 'warn');
+        showToast(`⚠️ Hóa đơn trùng lặp! ${String(obj?.warning ?? '')}`.trim(), 'warn');
         resetUpload();
         return;
       }
 
       if (!res.ok) {
-        const e = json?.error ?? text ?? 'Lỗi không xác định';
+        const e = String(obj?.error ?? text ?? 'Lỗi không xác định');
         if (res.status === 503) {
           throw new Error(`${e} (bấm Thử lại)`);
         }
@@ -362,7 +363,13 @@ export default function DashboardPage() {
       }
 
       setProcessingMsg('Lưu vào database...');
-      showToast(`✅ Xử lý thành công: ${json?.data?.invoice_metadata?.vendor_name ?? ''}`.trim(), 'success');
+      const vendorName =
+        obj && typeof obj.data === 'object' && obj.data
+          && typeof (obj.data as Record<string, unknown>).invoice_metadata === 'object'
+          && (obj.data as Record<string, unknown>).invoice_metadata
+          ? String(((obj.data as Record<string, unknown>).invoice_metadata as Record<string, unknown>).vendor_name ?? '')
+          : '';
+      showToast(`✅ Xử lý thành công: ${vendorName}`.trim(), 'success');
       setUploadStep('done');
       await fetchInvoices();
       setTimeout(() => resetUpload(), 2000);
