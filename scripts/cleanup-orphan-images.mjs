@@ -47,6 +47,39 @@ function parseArgs(argv) {
   return args;
 }
 
+function getProjectRefFromSupabaseUrl(supabaseUrl) {
+  try {
+    const host = new URL(String(supabaseUrl)).hostname;
+    return host.split('.')[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function getProjectRefFromDatabaseUrl(databaseUrl) {
+  try {
+    const u = new URL(String(databaseUrl));
+
+    // Common patterns:
+    // - user: postgres.<ref>
+    // - host: db.<ref>.supabase.co
+    // - host (pooler): <ref>.pooler.supabase.com
+    const userMatch = u.username.match(/postgres\.([a-z0-9]+)/i);
+    if (userMatch) return userMatch[1];
+
+    const host = u.hostname;
+    const dbHostMatch = host.match(/db\.([a-z0-9]+)\.supabase\.co/i);
+    if (dbHostMatch) return dbHostMatch[1];
+
+    const poolerMatch = host.match(/([a-z0-9]+)\.pooler\.supabase\.com/i);
+    if (poolerMatch) return poolerMatch[1];
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function tryGetStoragePathFromInvoiceImageRef(value) {
   const raw = String(value ?? '').trim();
   if (!raw) return null;
@@ -93,6 +126,23 @@ function chunk(arr, size) {
   return out;
 }
 
+async function assertDeletedInDb(client, paths) {
+  const res = await client.query(
+    `SELECT count(*)::int AS n
+     FROM storage.objects
+     WHERE bucket_id = $1
+       AND name = ANY($2::text[])`,
+    [BUCKET, paths]
+  );
+  const n = Number(res.rows?.[0]?.n ?? 0);
+  if (n > 0) {
+    throw new Error(
+      `Delete verification failed: ${n} object(s) still present in storage.objects. ` +
+        `Your NEXT_PUBLIC_SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY likely point to a different Supabase project than DATABASE_URL.`
+    );
+  }
+}
+
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
@@ -101,6 +151,15 @@ async function run() {
 
   if (!supabaseUrl || !serviceKey || !databaseUrl) {
     throw new Error('Missing env vars in .env.local: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL');
+  }
+
+  const supaRef = getProjectRefFromSupabaseUrl(supabaseUrl);
+  const dbRef = getProjectRefFromDatabaseUrl(databaseUrl);
+  if (supaRef && dbRef && supaRef !== dbRef) {
+    throw new Error(
+      `Env mismatch: NEXT_PUBLIC_SUPABASE_URL is for project "${supaRef}", but DATABASE_URL is for "${dbRef}". ` +
+        `Update .env.local so all Supabase settings come from the same project, then re-run.`
+    );
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
@@ -172,9 +231,19 @@ async function run() {
   console.log('🗑️  Deleting...');
   let deleted = 0;
   for (const batch of chunk(orphans, 100)) {
-    const { error } = await supabaseAdmin.storage.from(BUCKET).remove(batch);
+    const { data, error } = await supabaseAdmin.storage.from(BUCKET).remove(batch);
     if (error) throw new Error(`Storage remove failed: ${error.message}`);
-    deleted += batch.length;
+
+    const removedCount = Array.isArray(data) ? data.length : 0;
+    if (removedCount !== batch.length) {
+      throw new Error(
+        `Storage remove returned ${removedCount}/${batch.length} removed items. ` +
+          `This usually means the bucket is empty or you're pointing at the wrong Supabase project.`
+      );
+    }
+
+    await assertDeletedInDb(client, batch);
+    deleted += removedCount;
     console.log(`   ✅ Deleted ${deleted}/${orphans.length}`);
   }
 
