@@ -191,7 +191,7 @@ export async function getInvoiceById(id: string): Promise<Record<string, unknown
              'unit', COALESCE(ii.unit, u.code),
              'price', ii.price,
              'amount_excl_gst', ii.amount_excl_gst
-           ) ORDER BY ii.sort_order NULLS LAST, ii.created_at
+           ) ORDER BY ii.sort_order NULLS LAST, ii.created_at, ii.id
          ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
        FROM invoices i
        LEFT JOIN vendors v ON v.id = i.vendor_id
@@ -229,7 +229,7 @@ export async function getInvoiceById(id: string): Promise<Record<string, unknown
                'unit', COALESCE(ii.unit, u.code),
                'price', ii.price,
                'amount_excl_gst', ii.amount_excl_gst
-             ) ORDER BY ii.created_at
+             ) ORDER BY ii.created_at, ii.id
            ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
          FROM invoices i
          LEFT JOIN vendors v ON v.id = i.vendor_id
@@ -256,7 +256,7 @@ export async function getInvoiceById(id: string): Promise<Record<string, unknown
              'id', ii.id, 'product_code', ii.product_code, 'description', ii.description,
              'standard', ii.standard, 'quantity', ii.quantity, 'unit', ii.unit,
              'price', ii.price, 'amount_excl_gst', ii.amount_excl_gst
-           ) ORDER BY ii.created_at
+           ) ORDER BY ii.created_at, ii.id
          ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
        FROM invoices i
        LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
@@ -615,7 +615,7 @@ export async function listInvoices(opts: {
              'unit', COALESCE(ii.unit, u.code),
              'price', ii.price,
              'amount_excl_gst', ii.amount_excl_gst
-           ) ORDER BY ii.sort_order NULLS LAST, ii.created_at
+           ) ORDER BY ii.sort_order NULLS LAST, ii.created_at, ii.id
          ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
        FROM invoices i
        LEFT JOIN vendors v ON v.id = i.vendor_id
@@ -649,7 +649,7 @@ export async function listInvoices(opts: {
                'unit', COALESCE(ii.unit, u.code),
                'price', ii.price,
                'amount_excl_gst', ii.amount_excl_gst
-             ) ORDER BY ii.created_at
+             ) ORDER BY ii.created_at, ii.id
            ) FILTER (WHERE ii.id IS NOT NULL) AS invoice_items
          FROM invoices i
          LEFT JOIN vendors v ON v.id = i.vendor_id
