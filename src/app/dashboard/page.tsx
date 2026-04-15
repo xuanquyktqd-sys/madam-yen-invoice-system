@@ -334,7 +334,7 @@ export default function DashboardPage() {
       const fd = new FormData();
       fd.append('image', previewFile);
 
-      setProcessingMsg('Đang chạy OCR (Gemini 1.5 Pro)...');
+      setProcessingMsg('Đang chạy OCR (Gemini, tự động retry)...');
       const res = await fetch('/api/process', { method: 'POST', body: fd });
       const json = await res.json();
 
@@ -345,7 +345,11 @@ export default function DashboardPage() {
       }
 
       if (!res.ok) {
-        throw new Error(json.error ?? 'Lỗi không xác định');
+        const e = json.error ?? 'Lỗi không xác định';
+        if (res.status === 503) {
+          throw new Error(`${e} (bấm Thử lại)`);
+        }
+        throw new Error(e);
       }
 
       setProcessingMsg('Lưu vào database...');

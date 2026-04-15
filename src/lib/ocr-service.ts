@@ -157,9 +157,10 @@ async function callGemini(imageBuffer: Buffer, modelName: string): Promise<Invoi
  *  2. On timeout/error → fallback to gemini-2.5-flash (fast + accurate)
  */
 export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceData> {
-  const PRIMARY_MODEL = 'gemini-2.5-flash';
-  const FALLBACK_MODEL = 'gemini-2.5-pro';
+  const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY ?? 'gemini-2.5-pro';
+  const FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK ?? 'gemini-2.5-flash';
   const TIMEOUT_MS = 50_000;
+  const MAX_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.GEMINI_RETRY_ATTEMPTS ?? 3)));
 
   console.log(`[OCR] Trying ${PRIMARY_MODEL}...`);
 
@@ -172,8 +173,54 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
       );
     });
 
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  const getHttpStatus = (err: unknown): number | null => {
+    const e = err as { status?: unknown; response?: { status?: unknown }; cause?: { status?: unknown }; message?: unknown } | null;
+    const direct = e?.status ?? e?.response?.status ?? e?.cause?.status;
+    if (typeof direct === 'number') return direct;
+    if (typeof direct === 'string') {
+      const n = Number(direct);
+      if (Number.isFinite(n)) return n;
+    }
+    const msg = String(e?.message ?? '');
+    const m = msg.match(/\[(\d{3})\s+[A-Za-z]/);
+    if (m?.[1]) return Number(m[1]);
+    return null;
+  };
+
+  const isRetryableError = (err: unknown): boolean => {
+    const status = getHttpStatus(err);
+    if (status && (status === 429 || status === 500 || status === 502 || status === 503 || status === 504)) return true;
+    const msg = String((err as { message?: unknown } | null)?.message ?? '');
+    return (
+      msg.includes('high demand') ||
+      msg.includes('Service Unavailable') ||
+      msg.includes('ECONNRESET') ||
+      msg.includes('ETIMEDOUT') ||
+      msg.includes('fetch failed')
+    );
+  };
+
+  const callWithRetry = async (modelName: string): Promise<InvoiceData> => {
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        if (attempt > 1) console.log(`[OCR] Retry ${attempt}/${MAX_ATTEMPTS} — ${modelName}`);
+        return await withTimeout(callGemini(imageBuffer, modelName), TIMEOUT_MS);
+      } catch (err) {
+        lastErr = err;
+        if (!isRetryableError(err) || attempt === MAX_ATTEMPTS) break;
+        const base = 600 * Math.pow(2, attempt - 1);
+        const jitter = Math.floor(Math.random() * 250);
+        await sleep(Math.min(8_000, base + jitter));
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  };
+
   try {
-    const result = await withTimeout(callGemini(imageBuffer, PRIMARY_MODEL), TIMEOUT_MS);
+    const result = await callWithRetry(PRIMARY_MODEL);
     console.log(`[OCR] ✅ ${PRIMARY_MODEL} succeeded`);
     return result;
   } catch (primaryError) {
@@ -181,12 +228,17 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
     console.warn(`[OCR] ⚠️ ${PRIMARY_MODEL} failed (${err.message}). Falling back to ${FALLBACK_MODEL}...`);
 
     try {
-      const fallbackResult = await withTimeout(callGemini(imageBuffer, FALLBACK_MODEL), TIMEOUT_MS);
+      const fallbackResult = await callWithRetry(FALLBACK_MODEL);
       console.log(`[OCR] ✅ ${FALLBACK_MODEL} fallback succeeded`);
       return fallbackResult;
     } catch (fallbackError) {
       console.error(`[OCR] ❌ Both models failed.`, fallbackError);
-      throw new Error(`OCR failed: ${(fallbackError as Error).message}`);
+      const msg = (fallbackError as Error).message || 'Unknown error';
+      const status = getHttpStatus(fallbackError);
+      if (status === 503 || msg.includes('high demand')) {
+        throw new Error('MODEL_HIGH_DEMAND');
+      }
+      throw new Error(`OCR failed: ${msg}`);
     }
   }
 }

@@ -69,9 +69,20 @@ export async function POST(request: NextRequest) {
     } catch (ocrError) {
       const msg = (ocrError as Error).message;
       console.error('[API] OCR failed:', msg);
+      if (msg === 'MODEL_HIGH_DEMAND') {
+        return NextResponse.json({
+          error: 'OCR đang quá tải (Gemini). Vui lòng thử lại sau 10–30 giây.',
+          step: 'ocr',
+          retryable: true,
+        }, {
+          status: 503,
+          headers: { 'Retry-After': '15' },
+        });
+      }
       return NextResponse.json({
         error: `OCR thất bại: ${msg}`,
         step: 'ocr',
+        retryable: true,
       }, { status: 502 });
     }
 
