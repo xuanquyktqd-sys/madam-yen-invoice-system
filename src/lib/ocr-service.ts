@@ -132,28 +132,21 @@ type ProviderConfig = {
   model: string;
 };
 
-function getProviderConfig(): ProviderConfig {
-  const provider = (process.env.OCR_AI_PROVIDER ?? 'deepinfra') as OcrProvider;
+const PRIMARY: ProviderConfig = {
+  name: 'deepinfra',
+  baseURL: 'https://api.deepinfra.com/v1/openai',
+  apiKey: process.env.DEEPINFRA_API_KEY ?? process.env.OPENAI_API_KEY,
+  // DeepInfra model ids vary by account/region; override with OCR_MODEL_PRIMARY when needed.
+  model: process.env.OCR_MODEL_PRIMARY ?? 'meta-llama/llama-4-scout-17b-16e-instruct',
+};
 
-  const deepinfra: ProviderConfig = {
-    name: 'deepinfra',
-    baseURL: process.env.OCR_OPENAI_BASE_URL ?? 'https://api.deepinfra.com/v1/openai',
-    apiKey: process.env.DEEPINFRA_API_KEY ?? process.env.OPENAI_API_KEY,
-    // DeepInfra model ids vary by account/region; override with OCR_MODEL_PRIMARY when needed.
-    model: process.env.OCR_MODEL_PRIMARY ?? 'meta-llama/llama-4-scout-17b-16e-instruct',
-  };
-
-  const gemini: ProviderConfig = {
-    name: 'gemini',
-    // Google Gemini OpenAI-compatible endpoint.
-    baseURL: process.env.OCR_OPENAI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    apiKey: process.env.GEMINI_API_KEY ?? process.env.OPENAI_API_KEY,
-    model: process.env.GEMINI_MODEL_PRIMARY ?? process.env.OCR_MODEL_PRIMARY ?? 'gemini-2.5-flash',
-  };
-
-  if (provider === 'gemini') return gemini;
-  return deepinfra;
-}
+const FALLBACK: ProviderConfig = {
+  name: 'gemini',
+  // Google Gemini OpenAI-compatible endpoint.
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  apiKey: process.env.GEMINI_API_KEY ?? process.env.OPENAI_API_KEY,
+  model: process.env.GEMINI_MODEL_PRIMARY ?? 'gemini-2.5-flash',
+};
 
 function getTextContent(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -177,6 +170,8 @@ async function callOpenAICompatible(imageBuffer: Buffer, cfg: ProviderConfig): P
   const openai = new OpenAI({
     apiKey: cfg.apiKey,
     baseURL: cfg.baseURL,
+    // Gemini's OpenAI-compatible API can be configured to accept x-goog-api-key.
+    defaultHeaders: cfg.name === 'gemini' ? { 'x-goog-api-key': cfg.apiKey } : undefined,
   });
 
   const b64 = imageBuffer.toString('base64');
@@ -230,18 +225,37 @@ async function callOpenAICompatible(imageBuffer: Buffer, cfg: ProviderConfig): P
   return parsed;
 }
 
+export type OcrRunMeta = {
+  provider: OcrProvider;
+  model: string;
+  fallbackUsed: boolean;
+};
+
 /**
  * Main OCR function with automatic failover:
  *  - Uses OpenAI SDK with an OpenAI-compatible baseURL.
- *  - Default: DeepInfra (Llama 4 Scout).
- *  - Optional: Gemini via Google's OpenAI-compatible endpoint (set OCR_AI_PROVIDER=gemini).
+ *  - Primary: DeepInfra (Llama 4 Scout).
+ *  - Fallback: Gemini via Google's OpenAI-compatible endpoint.
  */
-export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceData> {
-  const cfg = getProviderConfig();
+export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: InvoiceData; meta: OcrRunMeta }> {
   const TIMEOUT_MS = 50_000;
-  const MAX_ATTEMPTS = Math.max(1, Math.min(3, Number(process.env.OCR_RETRY_ATTEMPTS ?? 3)));
+  const PRIMARY_ATTEMPTS = Math.max(1, Math.min(2, Number(process.env.OCR_PRIMARY_ATTEMPTS ?? 2)));
+  const FALLBACK_ATTEMPTS = Math.max(1, Math.min(3, Number(process.env.OCR_FALLBACK_ATTEMPTS ?? 3)));
 
-  console.log(`[OCR] Provider=${cfg.name} Model=${cfg.model}`);
+  const force = (process.env.OCR_FORCE_PROVIDER ?? '').toLowerCase();
+  const providers: Array<{ cfg: ProviderConfig; attempts: number }> =
+    force === 'gemini'
+      ? [{ cfg: FALLBACK, attempts: FALLBACK_ATTEMPTS }]
+      : force === 'deepinfra'
+        ? [{ cfg: PRIMARY, attempts: PRIMARY_ATTEMPTS }]
+        : [
+            { cfg: PRIMARY, attempts: PRIMARY_ATTEMPTS },
+            { cfg: FALLBACK, attempts: FALLBACK_ATTEMPTS },
+          ];
+
+  console.log(
+    `[OCR] Plan: primary=${PRIMARY.name}/${PRIMARY.model} (x${PRIMARY_ATTEMPTS}), fallback=${FALLBACK.name}/${FALLBACK.model} (x${FALLBACK_ATTEMPTS})`
+  );
 
   const withTimeout = (promise: Promise<InvoiceData>, ms: number): Promise<InvoiceData> =>
     new Promise((resolve, reject) => {
@@ -283,15 +297,15 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
     );
   };
 
-  const callWithRetry = async (modelName: string): Promise<InvoiceData> => {
+  const callWithRetry = async (cfg: ProviderConfig, attempts: number): Promise<InvoiceData> => {
     let lastErr: unknown = null;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        if (attempt > 1) console.log(`[OCR] Retry ${attempt}/${MAX_ATTEMPTS} — ${cfg.name}/${modelName}`);
-        return await withTimeout(callOpenAICompatible(imageBuffer, { ...cfg, model: modelName }), TIMEOUT_MS);
+        if (attempt > 1) console.log(`[OCR] Retry ${attempt}/${attempts} — ${cfg.name}/${cfg.model}`);
+        return await withTimeout(callOpenAICompatible(imageBuffer, cfg), TIMEOUT_MS);
       } catch (err) {
         lastErr = err;
-        if (!isRetryableError(err) || attempt === MAX_ATTEMPTS) break;
+        if (!isRetryableError(err) || attempt === attempts) break;
         const base = 600 * Math.pow(2, attempt - 1);
         const jitter = Math.floor(Math.random() * 250);
         await sleep(Math.min(8_000, base + jitter));
@@ -300,21 +314,30 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   };
 
-  try {
-    const result = await callWithRetry(cfg.model);
-    console.log(`[OCR] ✅ ${cfg.name}/${cfg.model} succeeded`);
-    return result;
-  } catch (primaryError) {
-    const err = primaryError as Error;
-    console.error(`[OCR] ❌ ${cfg.name}/${cfg.model} failed after retries.`, err);
-    const msg = err.message || 'Unknown error';
-    const status = getHttpStatus(primaryError);
-    if (status === 503 || msg.includes('high demand')) {
-      throw new Error('MODEL_HIGH_DEMAND');
+  let fallbackUsed = false;
+  let lastProviderError: unknown = null;
+
+  for (let i = 0; i < providers.length; i++) {
+    const { cfg, attempts } = providers[i]!;
+    try {
+      if (i > 0) fallbackUsed = true;
+      const data = await callWithRetry(cfg, attempts);
+      console.log(`[OCR] ✅ ${cfg.name}/${cfg.model} succeeded`);
+      return { data, meta: { provider: cfg.name, model: cfg.model, fallbackUsed } };
+    } catch (err) {
+      lastProviderError = err;
+      console.error(`[OCR] ❌ ${cfg.name}/${cfg.model} failed after retries.`, err);
     }
-    if (msg.includes('OCR_BAD_JSON') || msg.includes('Unexpected token')) {
-      throw new Error('OCR_OUTPUT_INVALID');
-    }
-    throw new Error(`OCR failed: ${msg}`);
   }
+
+  const err = lastProviderError as Error;
+  const msg = err?.message || 'Unknown error';
+  const status = getHttpStatus(lastProviderError);
+  if (status === 503 || msg.includes('high demand')) {
+    throw new Error('MODEL_HIGH_DEMAND');
+  }
+  if (msg.includes('OCR_BAD_JSON') || msg.includes('Unexpected token')) {
+    throw new Error('OCR_OUTPUT_INVALID');
+  }
+  throw new Error(`OCR failed: ${msg}`);
 }

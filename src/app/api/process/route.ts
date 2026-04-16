@@ -64,8 +64,11 @@ export async function POST(request: NextRequest) {
     // ── Step 4: OCR via AI ─────────────────────────────────────────────
     console.log('[API] Running OCR...');
     let invoiceData;
+    let ocrMeta: { provider: string; model: string; fallbackUsed: boolean } | null = null;
     try {
-      invoiceData = await extractInvoiceData(optimized.buffer);
+      const ocr = await extractInvoiceData(optimized.buffer);
+      invoiceData = ocr.data;
+      ocrMeta = ocr.meta;
     } catch (ocrError) {
       const msg = (ocrError as Error).message;
       console.error('[API] OCR failed:', msg);
@@ -94,6 +97,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[API] OCR done: ${invoiceData.invoice_metadata.vendor_name} — ${invoiceData.invoice_metadata.date}`);
+    if (ocrMeta) console.log(`[API] OCR model: ${ocrMeta.provider}/${ocrMeta.model}${ocrMeta.fallbackUsed ? ' (fallback)' : ''}`);
 
     // ── Step 5: Upload to Supabase Storage ────────────────────────────
     console.log('[API] Uploading to Supabase Storage...');
@@ -140,6 +144,7 @@ export async function POST(request: NextRequest) {
       invoiceId: saveResult.invoiceId,
       imageUrl,
       data: invoiceData,
+      ocr: ocrMeta,
       meta: {
         originalSizeKB: (inputBuffer.length / 1024).toFixed(0),
         optimizedSizeKB: optimized.sizeKB.toFixed(0),

@@ -349,7 +349,7 @@ export default function DashboardPage() {
       const fd = new FormData();
       fd.append('image', previewFile);
 
-      setProcessingMsg('Đang chạy OCR (tự động retry tối đa 3 lần)...');
+      setProcessingMsg('Đang chạy OCR: DeepInfra (Llama 4 Scout) — nếu lỗi sẽ chuyển Gemini (tự động retry)...');
       const res = await fetch('/api/process', { method: 'POST', body: fd });
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
@@ -375,7 +375,11 @@ export default function DashboardPage() {
           && (obj.data as Record<string, unknown>).invoice_metadata
           ? String(((obj.data as Record<string, unknown>).invoice_metadata as Record<string, unknown>).vendor_name ?? '')
           : '';
-      showToast(`✅ Xử lý thành công: ${vendorName}`.trim(), 'success');
+      const ocrLabel =
+        obj && typeof obj.ocr === 'object' && obj.ocr
+          ? `${String((obj.ocr as Record<string, unknown>).provider ?? '')}/${String((obj.ocr as Record<string, unknown>).model ?? '')}`
+          : '';
+      showToast(`✅ Xử lý thành công: ${vendorName}${ocrLabel ? ` (${ocrLabel})` : ''}`.trim(), 'success');
       setUploadStep('done');
       await fetchInvoices();
       setTimeout(() => resetUpload(), 2000);
