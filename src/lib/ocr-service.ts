@@ -137,7 +137,7 @@ const PRIMARY: ProviderConfig = {
   baseURL: 'https://api.deepinfra.com/v1/openai',
   apiKey: process.env.DEEPINFRA_API_KEY ?? process.env.OPENAI_API_KEY,
   // DeepInfra model ids vary by account/region; override with OCR_MODEL_PRIMARY when needed.
-  model: process.env.OCR_MODEL_PRIMARY ?? 'meta-llama/llama-4-scout-17b-16e-instruct',
+  model: process.env.OCR_MODEL_PRIMARY ?? 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
 };
 
 const FALLBACK: ProviderConfig = {
@@ -268,6 +268,13 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
     return null;
   };
 
+  const isModelNotFound = (err: unknown): boolean => {
+    const status = getHttpStatus(err);
+    if (status === 404) return true;
+    const msg = String((err as { message?: unknown } | null)?.message ?? '').toLowerCase();
+    return msg.includes('does not exist') || msg.includes('model') && msg.includes('not found');
+  };
+
   const isRetryableError = (err: unknown): boolean => {
     const status = getHttpStatus(err);
     if (status && (status === 429 || status === 500 || status === 502 || status === 503 || status === 504)) return true;
@@ -291,6 +298,7 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
         return await withTimeout(callOpenAICompatible(imageBuffer, cfg), TIMEOUT_MS);
       } catch (err) {
         lastErr = err;
+        if (isModelNotFound(err)) break;
         if (!isRetryableError(err) || attempt === attempts) break;
         const base = 600 * Math.pow(2, attempt - 1);
         const jitter = Math.floor(Math.random() * 250);
@@ -301,13 +309,31 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
   };
 
   let lastProviderError: unknown = null;
-  try {
-    const data = await callWithRetry(PRIMARY, PRIMARY_ATTEMPTS);
-    console.log(`[OCR] ✅ ${PRIMARY.name}/${PRIMARY.model} succeeded`);
-    return { data, meta: { provider: PRIMARY.name, model: PRIMARY.model, fallbackUsed: false } };
-  } catch (err) {
-    lastProviderError = err;
-    console.error(`[OCR] ❌ ${PRIMARY.name}/${PRIMARY.model} failed after retries.`, err);
+
+  const configuredModel = (process.env.OCR_MODEL_PRIMARY ?? '').trim();
+  const primaryModelCandidates = configuredModel
+    ? [configuredModel]
+    : [
+        // DeepInfra commonly follows Hugging Face repo ids (case-sensitive).
+        'meta-llama/Llama-4-Scout-17B-16E-Instruct',
+        'meta-llama/llama-4-scout-17b-16e-instruct',
+      ];
+
+  for (const model of primaryModelCandidates) {
+    const cfg: ProviderConfig = { ...PRIMARY, model };
+    try {
+      const data = await callWithRetry(cfg, PRIMARY_ATTEMPTS);
+      console.log(`[OCR] ✅ ${cfg.name}/${cfg.model} succeeded`);
+      return { data, meta: { provider: cfg.name, model: cfg.model, fallbackUsed: false } };
+    } catch (err) {
+      lastProviderError = err;
+      if (isModelNotFound(err) && !configuredModel) {
+        console.error(`[OCR] ❌ Model not found: ${cfg.model} (trying next candidate)`);
+        continue;
+      }
+      console.error(`[OCR] ❌ ${cfg.name}/${cfg.model} failed after retries.`, err);
+      break;
+    }
   }
 
   const err = lastProviderError as Error;
