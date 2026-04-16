@@ -3,13 +3,13 @@
  * Skill: ORC vision/Skill.md + ocr-system-prompt.md
  *
  * Rules:
- *  - Primary: gemini-2.5-pro (highest accuracy for NZ invoice OCR)
- *  - Failover: gemini-2.5-flash (fast, confirmed available)
+ *  - Default provider: DeepInfra (OpenAI-compatible) using Llama 4 Scout
+ *  - Optional fallback: Google Gemini (OpenAI-compatible endpoint)
  *  - Output: Strict JSON matching invoice-sample.json schema
  *  - Financial: GST = 15% NZ; always validate subtotal + gst = total
  */
 
-import { GoogleGenerativeAI, Part } from '@google/generative-ai';
+import OpenAI from 'openai';
 
 // ─── Types matching invoice-sample.json ───────────────────────────────────────
 export type LineItem = {
@@ -122,25 +122,85 @@ export function validateFinancials(totals: InvoiceData['totals']): InvoiceData['
   return totals;
 }
 
-// ─── OCR Engine ───────────────────────────────────────────────────────────────
-async function callGemini(imageBuffer: Buffer, modelName: string): Promise<InvoiceData> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
+// ─── OCR Engine (OpenAI-compatible) ──────────────────────────────────────────
+type OcrProvider = 'deepinfra' | 'gemini';
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
+type ProviderConfig = {
+  name: OcrProvider;
+  baseURL: string;
+  apiKey: string | undefined;
+  model: string;
+};
 
-  const imagePart: Part = {
-    inlineData: {
-      data: imageBuffer.toString('base64'),
-      mimeType: 'image/jpeg',
-    },
+function getProviderConfig(): ProviderConfig {
+  const provider = (process.env.OCR_AI_PROVIDER ?? 'deepinfra') as OcrProvider;
+
+  const deepinfra: ProviderConfig = {
+    name: 'deepinfra',
+    baseURL: process.env.OCR_OPENAI_BASE_URL ?? 'https://api.deepinfra.com/v1/openai',
+    apiKey: process.env.DEEPINFRA_API_KEY ?? process.env.OPENAI_API_KEY,
+    // DeepInfra model ids vary by account/region; override with OCR_MODEL_PRIMARY when needed.
+    model: process.env.OCR_MODEL_PRIMARY ?? 'meta-llama/llama-4-scout-17b-16e-instruct',
   };
 
-  const result = await model.generateContent([OCR_SYSTEM_PROMPT, imagePart]);
-  const text = result.response.text().trim();
+  const gemini: ProviderConfig = {
+    name: 'gemini',
+    // Google Gemini OpenAI-compatible endpoint.
+    baseURL: process.env.OCR_OPENAI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    apiKey: process.env.GEMINI_API_KEY ?? process.env.OPENAI_API_KEY,
+    model: process.env.GEMINI_MODEL_PRIMARY ?? process.env.OCR_MODEL_PRIMARY ?? 'gemini-2.5-flash',
+  };
 
-  // Strip markdown code fences if Gemini adds them despite instructions
+  if (provider === 'gemini') return gemini;
+  return deepinfra;
+}
+
+function getTextContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => {
+        if (!p) return '';
+        if (typeof p === 'string') return p;
+        const text = (p as { text?: unknown }).text;
+        return typeof text === 'string' ? text : '';
+      })
+      .join('')
+      .trim();
+  }
+  return '';
+}
+
+async function callOpenAICompatible(imageBuffer: Buffer, cfg: ProviderConfig): Promise<InvoiceData> {
+  if (!cfg.apiKey) throw new Error('OCR_API_KEY_MISSING');
+
+  const openai = new OpenAI({
+    apiKey: cfg.apiKey,
+    baseURL: cfg.baseURL,
+  });
+
+  const b64 = imageBuffer.toString('base64');
+  const dataUrl = `data:image/jpeg;base64,${b64}`;
+
+  const completion = await openai.chat.completions.create({
+    model: cfg.model,
+    temperature: 0,
+    messages: [
+      { role: 'system', content: OCR_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Extract invoice data from this image.' },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      },
+    ],
+  });
+
+  const msg = completion.choices?.[0]?.message;
+  const text = getTextContent(msg?.content).trim();
+
+  // Strip markdown code fences if provider adds them despite instructions
   const cleaned = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
 
   const tryParse = (input: string): InvoiceData => JSON.parse(input) as InvoiceData;
@@ -149,7 +209,7 @@ async function callGemini(imageBuffer: Buffer, modelName: string): Promise<Invoi
   try {
     parsed = tryParse(cleaned);
   } catch {
-    // Try to salvage when Gemini wraps JSON with extra text (or returns a plain error string)
+    // Salvage when model wraps JSON with extra text (or returns a plain error string)
     const first = cleaned.indexOf('{');
     const last = cleaned.lastIndexOf('}');
     if (first >= 0 && last > first) {
@@ -163,28 +223,25 @@ async function callGemini(imageBuffer: Buffer, modelName: string): Promise<Invoi
   }
 
   if (!parsed) {
-    // Mark as retryable upstream (we can hit a different model or retry)
     throw new Error('OCR_BAD_JSON');
   }
 
-  // Validate financials
   parsed.totals = validateFinancials(parsed.totals);
-
   return parsed;
 }
 
 /**
  * Main OCR function with automatic failover:
- *  1. Try gemini-2.5-pro (best OCR accuracy for NZ invoices)
- *  2. On timeout/error → fallback to gemini-2.5-flash (fast + accurate)
+ *  - Uses OpenAI SDK with an OpenAI-compatible baseURL.
+ *  - Default: DeepInfra (Llama 4 Scout).
+ *  - Optional: Gemini via Google's OpenAI-compatible endpoint (set OCR_AI_PROVIDER=gemini).
  */
 export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceData> {
-  // User choice: always use Flash as primary; no fallback model.
-  const PRIMARY_MODEL = process.env.GEMINI_MODEL_PRIMARY ?? 'gemini-2.5-flash';
+  const cfg = getProviderConfig();
   const TIMEOUT_MS = 50_000;
-  const MAX_ATTEMPTS = Math.max(1, Math.min(3, Number(process.env.GEMINI_RETRY_ATTEMPTS ?? 3)));
+  const MAX_ATTEMPTS = Math.max(1, Math.min(3, Number(process.env.OCR_RETRY_ATTEMPTS ?? 3)));
 
-  console.log(`[OCR] Trying ${PRIMARY_MODEL}...`);
+  console.log(`[OCR] Provider=${cfg.name} Model=${cfg.model}`);
 
   const withTimeout = (promise: Promise<InvoiceData>, ms: number): Promise<InvoiceData> =>
     new Promise((resolve, reject) => {
@@ -230,8 +287,8 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
     let lastErr: unknown = null;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        if (attempt > 1) console.log(`[OCR] Retry ${attempt}/${MAX_ATTEMPTS} — ${modelName}`);
-        return await withTimeout(callGemini(imageBuffer, modelName), TIMEOUT_MS);
+        if (attempt > 1) console.log(`[OCR] Retry ${attempt}/${MAX_ATTEMPTS} — ${cfg.name}/${modelName}`);
+        return await withTimeout(callOpenAICompatible(imageBuffer, { ...cfg, model: modelName }), TIMEOUT_MS);
       } catch (err) {
         lastErr = err;
         if (!isRetryableError(err) || attempt === MAX_ATTEMPTS) break;
@@ -244,12 +301,12 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<InvoiceDa
   };
 
   try {
-    const result = await callWithRetry(PRIMARY_MODEL);
-    console.log(`[OCR] ✅ ${PRIMARY_MODEL} succeeded`);
+    const result = await callWithRetry(cfg.model);
+    console.log(`[OCR] ✅ ${cfg.name}/${cfg.model} succeeded`);
     return result;
   } catch (primaryError) {
     const err = primaryError as Error;
-    console.error(`[OCR] ❌ ${PRIMARY_MODEL} failed after retries.`, err);
+    console.error(`[OCR] ❌ ${cfg.name}/${cfg.model} failed after retries.`, err);
     const msg = err.message || 'Unknown error';
     const status = getHttpStatus(primaryError);
     if (status === 503 || msg.includes('high demand')) {

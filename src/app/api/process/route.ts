@@ -2,7 +2,7 @@
  * API Route: POST /api/process
  * Madam Yen IMS — Core Processing Pipeline
  *
- * Flow: Receive image → Optimize → Upload to Supabase Storage → OCR (Gemini) → Save to DB
+ * Flow: Receive image → Optimize → Upload to Supabase Storage → OCR (AI) → Save to DB
  * Zero local storage at every step.
  */
 
@@ -13,7 +13,7 @@ import { uploadInvoiceImage } from '@/lib/storage-service';
 import { saveInvoice } from '@/lib/db-service';
 
 export const runtime = 'nodejs'; // Required for sharp + buffer operations
-export const maxDuration = 60;   // 60s timeout for Gemini Pro calls
+export const maxDuration = 60;   // 60s timeout for OCR calls
 
 export async function POST(request: NextRequest) {
   console.log('[API] POST /api/process — new request');
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ── Step 4: OCR via Gemini ─────────────────────────────────────────
+    // ── Step 4: OCR via AI ─────────────────────────────────────────────
     console.log('[API] Running OCR...');
     let invoiceData;
     try {
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       console.error('[API] OCR failed:', msg);
       if (msg === 'MODEL_HIGH_DEMAND') {
         return NextResponse.json({
-          error: 'OCR đang quá tải (Gemini). Vui lòng thử lại sau 1 phút.',
+          error: 'OCR đang quá tải. Vui lòng thử lại sau 1 phút.',
           step: 'ocr',
           retryable: true,
         }, {

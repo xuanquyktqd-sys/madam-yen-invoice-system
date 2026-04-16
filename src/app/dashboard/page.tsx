@@ -343,13 +343,13 @@ export default function DashboardPage() {
   const handleConfirmAndProcess = async () => {
     if (!previewFile) return;
     setUploadStep('processing');
-    setProcessingMsg('Đang gửi ảnh lên Gemini...');
+    setProcessingMsg('Đang gửi ảnh lên hệ thống...');
 
     try {
       const fd = new FormData();
       fd.append('image', previewFile);
 
-      setProcessingMsg('Đang chạy OCR (Gemini Flash, tự động retry tối đa 3 lần)...');
+      setProcessingMsg('Đang chạy OCR (tự động retry tối đa 3 lần)...');
       const res = await fetch('/api/process', { method: 'POST', body: fd });
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
