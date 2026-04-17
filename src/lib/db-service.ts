@@ -867,7 +867,7 @@ export async function getCostReport(opts: {
     `${baseFilteredCte}
      SELECT
        vendor_name,
-       COUNT(DISTINCT invoice_id)::int AS invoice_count,
+       COUNT(DISTINCT id)::int AS invoice_count,
        COALESCE(SUM(total_ex_gst), 0)::numeric AS total_ex_gst,
        COALESCE(SUM(total_inc_gst), 0)::numeric AS total_inc_gst,
        COALESCE(SUM(gst_total), 0)::numeric AS gst_total
