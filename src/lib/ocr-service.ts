@@ -235,13 +235,27 @@ export type OcrRunMeta = {
  * Main OCR function with automatic failover:
  *  - Uses OpenAI SDK with an OpenAI-compatible baseURL.
  *  - Primary: DeepInfra (Llama 4 Scout).
- *  - Fallback: (disabled for now; DeepInfra-only)
+ *  - Fallback: Gemini 2.5 Flash (OpenAI-compatible endpoint)
  */
 export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: InvoiceData; meta: OcrRunMeta }> {
   const TIMEOUT_MS = 50_000;
   const PRIMARY_ATTEMPTS = Math.max(1, Math.min(2, Number(process.env.OCR_PRIMARY_ATTEMPTS ?? 2)));
+  const FALLBACK_ATTEMPTS = Math.max(1, Math.min(3, Number(process.env.OCR_FALLBACK_ATTEMPTS ?? 3)));
 
-  console.log(`[OCR] Plan: ${PRIMARY.name}/${PRIMARY.model} (x${PRIMARY_ATTEMPTS})`);
+  const force = (process.env.OCR_FORCE_PROVIDER ?? '').toLowerCase();
+  const providers: Array<{ cfg: ProviderConfig; attempts: number }> =
+    force === 'gemini'
+      ? [{ cfg: FALLBACK, attempts: FALLBACK_ATTEMPTS }]
+      : force === 'deepinfra'
+        ? [{ cfg: PRIMARY, attempts: PRIMARY_ATTEMPTS }]
+        : [
+            { cfg: PRIMARY, attempts: PRIMARY_ATTEMPTS },
+            { cfg: FALLBACK, attempts: FALLBACK_ATTEMPTS },
+          ];
+
+  console.log(
+    `[OCR] Plan: primary=${PRIMARY.name}/${PRIMARY.model} (x${PRIMARY_ATTEMPTS}), fallback=${FALLBACK.name}/${FALLBACK.model} (x${FALLBACK_ATTEMPTS})`
+  );
 
   const withTimeout = (promise: Promise<InvoiceData>, ms: number): Promise<InvoiceData> =>
     new Promise((resolve, reject) => {
@@ -309,6 +323,7 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
   };
 
   let lastProviderError: unknown = null;
+  let fallbackUsed = false;
 
   const configuredModel = (process.env.OCR_MODEL_PRIMARY ?? '').trim();
   const primaryModelCandidates = configuredModel
@@ -319,20 +334,27 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
         'meta-llama/llama-4-scout-17b-16e-instruct',
       ];
 
-  for (const model of primaryModelCandidates) {
-    const cfg: ProviderConfig = { ...PRIMARY, model };
-    try {
-      const data = await callWithRetry(cfg, PRIMARY_ATTEMPTS);
-      console.log(`[OCR] ✅ ${cfg.name}/${cfg.model} succeeded`);
-      return { data, meta: { provider: cfg.name, model: cfg.model, fallbackUsed: false } };
-    } catch (err) {
-      lastProviderError = err;
-      if (isModelNotFound(err) && !configuredModel) {
-        console.error(`[OCR] ❌ Model not found: ${cfg.model} (trying next candidate)`);
-        continue;
+  for (let providerIndex = 0; providerIndex < providers.length; providerIndex++) {
+    const { cfg: baseCfg, attempts } = providers[providerIndex]!;
+    const isPrimary = baseCfg.name === PRIMARY.name;
+    const candidates = isPrimary ? primaryModelCandidates : [baseCfg.model];
+    if (providerIndex > 0) fallbackUsed = true;
+
+    for (const model of candidates) {
+      const cfg: ProviderConfig = { ...baseCfg, model };
+      try {
+        const data = await callWithRetry(cfg, attempts);
+        console.log(`[OCR] ✅ ${cfg.name}/${cfg.model} succeeded`);
+        return { data, meta: { provider: cfg.name, model: cfg.model, fallbackUsed } };
+      } catch (err) {
+        lastProviderError = err;
+        if (isPrimary && isModelNotFound(err) && !configuredModel) {
+          console.error(`[OCR] ❌ Model not found: ${cfg.model} (trying next candidate)`);
+          continue;
+        }
+        console.error(`[OCR] ❌ ${cfg.name}/${cfg.model} failed after retries.`, err);
+        break;
       }
-      console.error(`[OCR] ❌ ${cfg.name}/${cfg.model} failed after retries.`, err);
-      break;
     }
   }
 
