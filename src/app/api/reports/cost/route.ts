@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCostReport } from '@/lib/db-service';
 
+export const runtime = 'nodejs';
+
 function parseYyyyMmDd(value: string | null): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();

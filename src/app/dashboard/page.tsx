@@ -333,6 +333,9 @@ export default function DashboardPage() {
       if (reportProductSearch.trim()) params.set('product_q', reportProductSearch.trim());
       const res = await fetch(`/api/reports/cost?${params.toString()}`);
       const json = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof json?.error === 'string' ? json.error : 'Không tải được báo cáo chi phí');
+      }
       setCostReport({
         vendor_summary: Array.isArray(json?.vendor_summary) ? json.vendor_summary : [],
         product_summary: Array.isArray(json?.product_summary) ? json.product_summary : [],
@@ -341,8 +344,9 @@ export default function DashboardPage() {
           decreased: Array.isArray(json?.price_insights?.decreased) ? json.price_insights.decreased : [],
         },
       });
-    } catch {
-      showToast('Không tải được báo cáo chi phí', 'error');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không tải được báo cáo chi phí';
+      showToast(message, 'error');
       setCostReport({
         vendor_summary: [],
         product_summary: [],
