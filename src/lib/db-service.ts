@@ -717,6 +717,297 @@ export async function listInvoices(opts: {
   return { invoices, total };
 }
 
+export type CostReportVendorSummary = {
+  vendor_name: string;
+  invoice_count: number;
+  total_ex_gst: number;
+  total_inc_gst: number;
+  gst_total: number;
+};
+
+export type CostReportProductSummary = {
+  product_key: string;
+  product_name: string;
+  vendor_name: string;
+  unit: string | null;
+  total_qty: number;
+  total_ex_gst: number;
+  total_inc_gst: number;
+  last_price_ex_gst: number | null;
+};
+
+export type CostReportPriceInsight = {
+  product_key: string;
+  product_name: string;
+  vendor_name: string;
+  previous_price_ex_gst: number;
+  latest_price_ex_gst: number;
+  delta: number;
+  pct_change: number;
+  previous_invoice_date: string;
+  latest_invoice_date: string;
+};
+
+export type CostReport = {
+  vendor_summary: CostReportVendorSummary[];
+  product_summary: CostReportProductSummary[];
+  price_insights: {
+    increased: CostReportPriceInsight[];
+    decreased: CostReportPriceInsight[];
+  };
+};
+
+function buildInvoiceReportWhere(opts: {
+  status?: string;
+  from?: string;
+  to?: string;
+  vendor?: string;
+  productQ?: string;
+}): { whereSql: string; params: unknown[] } {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  if (opts.status && opts.status !== 'all') {
+    conditions.push(`i.status = $${idx++}`);
+    params.push(opts.status);
+  }
+  if (opts.from) {
+    conditions.push(`i.invoice_date >= $${idx++}`);
+    params.push(opts.from);
+  }
+  if (opts.to) {
+    conditions.push(`i.invoice_date <= $${idx++}`);
+    params.push(opts.to);
+  }
+  if (opts.vendor) {
+    conditions.push(`COALESCE(v.name, i.vendor_name) = $${idx++}`);
+    params.push(opts.vendor);
+  }
+  if (opts.productQ) {
+    conditions.push(`(
+      COALESCE(rp.name, ii.description, '') ILIKE $${idx}
+      OR COALESCE(rp.vendor_product_code, ii.product_code, '') ILIKE $${idx}
+    )`);
+    params.push(`%${opts.productQ}%`);
+    idx++;
+  }
+
+  return {
+    whereSql: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+    params,
+  };
+}
+
+export async function getCostReport(opts: {
+  status?: string;
+  from?: string;
+  to?: string;
+  vendor?: string;
+  productQ?: string;
+  insightLimit?: number;
+}): Promise<CostReport> {
+  const insightLimit = Math.min(50, Math.max(1, opts.insightLimit ?? 10));
+  const { whereSql, params } = buildInvoiceReportWhere(opts);
+
+  const baseFilteredCte = `
+    WITH filtered_items AS (
+      SELECT
+        i.id AS invoice_id,
+        i.invoice_date,
+        i.created_at AS invoice_created_at,
+        i.vendor_id,
+        COALESCE(v.name, i.vendor_name) AS vendor_name,
+        ii.id AS invoice_item_id,
+        ii.created_at AS item_created_at,
+        ii.product_id,
+        CASE
+          WHEN ii.product_id IS NOT NULL THEN ii.product_id::text
+          WHEN NULLIF(upper(regexp_replace(COALESCE(ii.product_code, ''), '[^A-Za-z0-9]', '', 'g')), '') IS NOT NULL
+            THEN concat(
+              'code:',
+              COALESCE(i.vendor_id::text, lower(trim(COALESCE(v.name, i.vendor_name)))),
+              ':',
+              upper(regexp_replace(COALESCE(ii.product_code, ''), '[^A-Za-z0-9]', '', 'g'))
+            )
+          ELSE concat(
+            'desc:',
+            COALESCE(i.vendor_id::text, lower(trim(COALESCE(v.name, i.vendor_name)))),
+            ':',
+            lower(trim(COALESCE(ii.description, '')))
+          )
+        END AS product_key,
+        COALESCE(rp.name, ii.description, 'Unknown item') AS product_name,
+        COALESCE(u.code, ii.unit) AS unit,
+        COALESCE(ii.quantity, 0) AS quantity,
+        COALESCE(
+          ii.price,
+          CASE
+            WHEN COALESCE(ii.quantity, 0) > 0 AND ii.amount_excl_gst IS NOT NULL
+              THEN round((ii.amount_excl_gst / ii.quantity)::numeric, 4)
+            ELSE NULL
+          END
+        ) AS price_ex_gst,
+        COALESCE(ii.amount_excl_gst, 0) AS amount_ex_gst,
+        (
+          COALESCE(i.type, '') ILIKE '%credit%'
+          OR COALESCE(i.total_amount, 0) < 0
+          OR i.parent_invoice_id IS NOT NULL
+        ) AS is_credit
+      FROM invoices i
+      LEFT JOIN vendors v ON v.id = i.vendor_id
+      LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+      LEFT JOIN restaurant_products rp ON rp.id = ii.product_id
+      LEFT JOIN units u ON u.id = ii.unit_id
+      ${whereSql}
+    )
+  `;
+
+  const vendorRes = await pool.query(
+    `${baseFilteredCte}
+     SELECT
+       vendor_name,
+       COUNT(DISTINCT invoice_id)::int AS invoice_count,
+       COALESCE(SUM(total_ex_gst), 0)::numeric AS total_ex_gst,
+       COALESCE(SUM(total_inc_gst), 0)::numeric AS total_inc_gst,
+       COALESCE(SUM(gst_total), 0)::numeric AS gst_total
+     FROM (
+       SELECT DISTINCT
+         i.id,
+         COALESCE(v.name, i.vendor_name) AS vendor_name,
+         COALESCE(i.sub_total, 0) + COALESCE(i.freight, 0) AS total_ex_gst,
+         COALESCE(i.total_amount, 0) AS total_inc_gst,
+         COALESCE(i.gst_amount, 0) AS gst_total
+       FROM invoices i
+       LEFT JOIN vendors v ON v.id = i.vendor_id
+       LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+       LEFT JOIN restaurant_products rp ON rp.id = ii.product_id
+       ${whereSql}
+     ) vendor_invoices
+     GROUP BY vendor_name
+     ORDER BY total_inc_gst DESC, vendor_name ASC`,
+    params
+  );
+
+  const productRes = await pool.query(
+    `${baseFilteredCte}
+     , ranked_items AS (
+       SELECT
+         *,
+         ROW_NUMBER() OVER (
+           PARTITION BY vendor_name, product_key
+           ORDER BY invoice_date DESC NULLS LAST, invoice_created_at DESC, item_created_at DESC, invoice_item_id DESC
+         ) AS recency_rank
+       FROM filtered_items
+       WHERE invoice_item_id IS NOT NULL
+     )
+     SELECT
+       product_key,
+       product_name,
+       vendor_name,
+       unit,
+       COALESCE(SUM(quantity), 0)::numeric AS total_qty,
+       COALESCE(SUM(amount_ex_gst), 0)::numeric AS total_ex_gst,
+       COALESCE(SUM(amount_ex_gst * 1.15), 0)::numeric AS total_inc_gst,
+       MAX(price_ex_gst) FILTER (WHERE recency_rank = 1)::numeric AS last_price_ex_gst
+     FROM ranked_items
+     GROUP BY product_key, product_name, vendor_name, unit
+     ORDER BY total_inc_gst DESC, vendor_name ASC, product_name ASC`,
+    params
+  );
+
+  const insightRes = await pool.query(
+    `${baseFilteredCte}
+     , price_candidates AS (
+       SELECT *
+       FROM filtered_items
+       WHERE invoice_item_id IS NOT NULL
+         AND NOT is_credit
+         AND quantity > 0
+         AND price_ex_gst IS NOT NULL
+         AND price_ex_gst > 0
+     )
+     , ranked_prices AS (
+       SELECT
+         *,
+         ROW_NUMBER() OVER (
+           PARTITION BY vendor_name, product_key
+           ORDER BY invoice_date DESC NULLS LAST, invoice_created_at DESC, item_created_at DESC, invoice_item_id DESC
+         ) AS recency_rank
+       FROM price_candidates
+     )
+     SELECT
+       latest.product_key,
+       latest.product_name,
+       latest.vendor_name,
+       previous.price_ex_gst::numeric AS previous_price_ex_gst,
+       latest.price_ex_gst::numeric AS latest_price_ex_gst,
+       (latest.price_ex_gst - previous.price_ex_gst)::numeric AS delta,
+       CASE
+         WHEN previous.price_ex_gst = 0 THEN NULL
+         ELSE ((latest.price_ex_gst - previous.price_ex_gst) / previous.price_ex_gst)::numeric
+       END AS pct_change,
+       previous.invoice_date::text AS previous_invoice_date,
+       latest.invoice_date::text AS latest_invoice_date
+     FROM ranked_prices latest
+     JOIN ranked_prices previous
+       ON previous.vendor_name = latest.vendor_name
+      AND previous.product_key = latest.product_key
+      AND previous.recency_rank = 2
+     WHERE latest.recency_rank = 1
+       AND previous.price_ex_gst <> latest.price_ex_gst`,
+    params
+  );
+
+  const vendor_summary = vendorRes.rows.map((row) => ({
+    vendor_name: String(row.vendor_name ?? 'Unknown vendor'),
+    invoice_count: Number(row.invoice_count ?? 0),
+    total_ex_gst: toNumberOrNull(row.total_ex_gst) ?? 0,
+    total_inc_gst: toNumberOrNull(row.total_inc_gst) ?? 0,
+    gst_total: toNumberOrNull(row.gst_total) ?? 0,
+  }));
+
+  const product_summary = productRes.rows.map((row) => ({
+    product_key: String(row.product_key ?? ''),
+    product_name: String(row.product_name ?? 'Unknown item'),
+    vendor_name: String(row.vendor_name ?? 'Unknown vendor'),
+    unit: (row.unit as string | null) ?? null,
+    total_qty: toNumberOrNull(row.total_qty) ?? 0,
+    total_ex_gst: toNumberOrNull(row.total_ex_gst) ?? 0,
+    total_inc_gst: toNumberOrNull(row.total_inc_gst) ?? 0,
+    last_price_ex_gst: toNumberOrNull(row.last_price_ex_gst),
+  }));
+
+  const insightRows = insightRes.rows
+    .map((row) => ({
+      product_key: String(row.product_key ?? ''),
+      product_name: String(row.product_name ?? 'Unknown item'),
+      vendor_name: String(row.vendor_name ?? 'Unknown vendor'),
+      previous_price_ex_gst: toNumberOrNull(row.previous_price_ex_gst) ?? 0,
+      latest_price_ex_gst: toNumberOrNull(row.latest_price_ex_gst) ?? 0,
+      delta: toNumberOrNull(row.delta) ?? 0,
+      pct_change: toNumberOrNull(row.pct_change) ?? 0,
+      previous_invoice_date: String(row.previous_invoice_date ?? ''),
+      latest_invoice_date: String(row.latest_invoice_date ?? ''),
+    }))
+    .filter((row) => Number.isFinite(row.pct_change));
+
+  return {
+    vendor_summary,
+    product_summary,
+    price_insights: {
+      increased: insightRows
+        .filter((row) => row.delta > 0)
+        .sort((a, b) => b.pct_change - a.pct_change)
+        .slice(0, insightLimit),
+      decreased: insightRows
+        .filter((row) => row.delta < 0)
+        .sort((a, b) => a.pct_change - b.pct_change)
+        .slice(0, insightLimit),
+    },
+  };
+}
+
 // ── Update invoice fields ──────────────────────────────────────────────────
 export async function patchInvoice(
   id: string,

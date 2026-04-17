@@ -37,10 +37,52 @@ type Invoice = {
 type UploadStep = 'idle' | 'preview' | 'confirming' | 'processing' | 'done' | 'error';
 type FilterStatus = 'all' | 'pending_review' | 'approved' | 'rejected';
 type DatePreset = 'all' | 'day' | 'month' | 'custom';
+type DashboardView = 'list' | 'report';
+
+type ReportVendorSummary = {
+  vendor_name: string;
+  invoice_count: number;
+  total_ex_gst: number;
+  total_inc_gst: number;
+  gst_total: number;
+};
+
+type ReportProductSummary = {
+  product_key: string;
+  product_name: string;
+  vendor_name: string;
+  unit: string | null;
+  total_qty: number;
+  total_ex_gst: number;
+  total_inc_gst: number;
+  last_price_ex_gst: number | null;
+};
+
+type ReportPriceInsight = {
+  product_key: string;
+  product_name: string;
+  vendor_name: string;
+  previous_price_ex_gst: number;
+  latest_price_ex_gst: number;
+  delta: number;
+  pct_change: number;
+  previous_invoice_date: string;
+  latest_invoice_date: string;
+};
+
+type CostReport = {
+  vendor_summary: ReportVendorSummary[];
+  product_summary: ReportProductSummary[];
+  price_insights: {
+    increased: ReportPriceInsight[];
+    decreased: ReportPriceInsight[];
+  };
+};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const formatNZD = (n: number) =>
   new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(n);
+const formatPct = (n: number) => `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const formatYmdLocal = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -105,6 +147,7 @@ export default function DashboardPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [dashboardView, setDashboardView] = useState<DashboardView>('list');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
@@ -112,6 +155,10 @@ export default function DashboardPage() {
   const [dateTo, setDateTo] = useState<string>('');
   const [customFrom, setCustomFrom] = useState<string>(formatYmdLocal(new Date()));
   const [customTo, setCustomTo] = useState<string>(formatYmdLocal(new Date()));
+  const [reportLoading, setReportLoading] = useState(false);
+  const [costReport, setCostReport] = useState<CostReport | null>(null);
+  const [reportVendorFilter, setReportVendorFilter] = useState('');
+  const [reportProductSearch, setReportProductSearch] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [imageZoom, setImageZoom] = useState(1);
   const [imageRotation, setImageRotation] = useState(0);
@@ -275,7 +322,39 @@ export default function DashboardPage() {
     }
   }, [filterStatus, search, dateFrom, dateTo]);
 
+  const fetchCostReport = useCallback(async () => {
+    setReportLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filterStatus !== 'all') params.set('status', filterStatus);
+      if (dateFrom) params.set('from', dateFrom);
+      if (dateTo) params.set('to', dateTo);
+      if (reportVendorFilter.trim()) params.set('vendor', reportVendorFilter.trim());
+      if (reportProductSearch.trim()) params.set('product_q', reportProductSearch.trim());
+      const res = await fetch(`/api/reports/cost?${params.toString()}`);
+      const json = await res.json();
+      setCostReport({
+        vendor_summary: Array.isArray(json?.vendor_summary) ? json.vendor_summary : [],
+        product_summary: Array.isArray(json?.product_summary) ? json.product_summary : [],
+        price_insights: {
+          increased: Array.isArray(json?.price_insights?.increased) ? json.price_insights.increased : [],
+          decreased: Array.isArray(json?.price_insights?.decreased) ? json.price_insights.decreased : [],
+        },
+      });
+    } catch {
+      showToast('Không tải được báo cáo chi phí', 'error');
+      setCostReport({
+        vendor_summary: [],
+        product_summary: [],
+        price_insights: { increased: [], decreased: [] },
+      });
+    } finally {
+      setReportLoading(false);
+    }
+  }, [filterStatus, dateFrom, dateTo, reportVendorFilter, reportProductSearch]);
+
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
+  useEffect(() => { fetchCostReport(); }, [fetchCostReport]);
   useEffect(() => {
     // Optional catalog endpoints (safe to fail before DB migration is applied)
     void Promise.all([
@@ -1868,21 +1947,60 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        <div className="flex items-center gap-2">
+          {([
+            { key: 'list', label: 'Danh sách' },
+            { key: 'report', label: 'Báo cáo' },
+          ] as Array<{ key: DashboardView; label: string }>).map((view) => (
+            <button
+              key={view.key}
+              onClick={() => setDashboardView(view.key)}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                dashboardView === view.key
+                  ? 'bg-white text-slate-950 border-white'
+                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'
+              }`}
+            >
+              {view.label}
+            </button>
+          ))}
+        </div>
+
         {/* ── Filters ────────────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3">
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Tìm kiếm Vendor, Mã hóa đơn..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-              />
-            </div>
+            {dashboardView === 'list' ? (
+              <div className="relative flex-1">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Tìm kiếm Vendor, Mã hóa đơn..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
+            ) : (
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  list="vendor-options"
+                  placeholder="Lọc theo nhà cung cấp..."
+                  value={reportVendorFilter}
+                  onChange={(e) => setReportVendorFilter(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+                <input
+                  type="text"
+                  placeholder="Tìm sản phẩm hoặc mã hàng..."
+                  value={reportProductSearch}
+                  onChange={(e) => setReportProductSearch(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
+            )}
             <div className="flex gap-2">
               {(['all', 'pending_review', 'approved', 'rejected'] as FilterStatus[]).map((s) => (
                 <button
@@ -1952,7 +2070,8 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Invoice table / cards ──────────────────────────────────────────── */}
-        {loading ? (
+        {dashboardView === 'list' ? (
+          loading ? (
           <div className="flex items-center justify-center py-20 gap-3 text-slate-500">
             <div className="w-5 h-5 border-2 border-slate-600 border-t-emerald-500 rounded-full animate-spin" />
             <span className="text-sm">Đang tải...</span>
@@ -2055,6 +2174,142 @@ export default function DashboardPage() {
               })}
             </div>
           </>
+          )
+        ) : reportLoading ? (
+          <div className="flex items-center justify-center py-20 gap-3 text-slate-500">
+            <div className="w-5 h-5 border-2 border-slate-600 border-t-emerald-500 rounded-full animate-spin" />
+            <span className="text-sm">Đang tải báo cáo...</span>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <section className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-800">
+                  <h2 className="text-white font-bold">Theo nhà cung cấp</h2>
+                  <p className="text-sm text-slate-400 mt-1">Chi phí tổng hợp theo hóa đơn trong khoảng lọc hiện tại.</p>
+                </div>
+                {costReport && costReport.vendor_summary.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                          <th className="px-4 py-3 text-left">Nhà cung cấp</th>
+                          <th className="px-4 py-3 text-right">Số hóa đơn</th>
+                          <th className="px-4 py-3 text-right">Ex GST</th>
+                          <th className="px-4 py-3 text-right">GST</th>
+                          <th className="px-4 py-3 text-right">Incl GST</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {costReport.vendor_summary.map((row) => (
+                          <tr key={row.vendor_name} className="border-b border-slate-800/60">
+                            <td className="px-4 py-3 text-white font-semibold">{row.vendor_name}</td>
+                            <td className="px-4 py-3 text-right text-slate-300 font-mono">{row.invoice_count}</td>
+                            <td className="px-4 py-3 text-right text-slate-300 font-mono">{formatNZD(row.total_ex_gst)}</td>
+                            <td className="px-4 py-3 text-right text-slate-300 font-mono">{formatNZD(row.gst_total)}</td>
+                            <td className="px-4 py-3 text-right text-emerald-400 font-mono font-bold">{formatNZD(row.total_inc_gst)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="px-5 py-12 text-sm text-slate-500">Không có dữ liệu nhà cung cấp trong bộ lọc này.</div>
+                )}
+              </section>
+
+              <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                <h2 className="text-white font-bold">Insight giá mua</h2>
+                <p className="text-sm text-slate-400 mt-1">So sánh lần mua gần nhất với lần mua ngay trước đó, theo nhà cung cấp + sản phẩm.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-rose-300">Tăng giá</div>
+                    {costReport && costReport.price_insights.increased.length > 0 ? costReport.price_insights.increased.map((row) => (
+                      <div key={`up-${row.product_key}`} className="rounded-2xl border border-rose-900/50 bg-rose-950/20 p-4">
+                        <div className="text-white font-semibold">{row.product_name}</div>
+                        <div className="text-xs text-slate-400 mt-1">{row.vendor_name}</div>
+                        <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                          <span className="text-slate-300">{formatNZD(row.previous_price_ex_gst)} {'->'} {formatNZD(row.latest_price_ex_gst)}</span>
+                          <span className="text-rose-300 font-bold">{formatPct(row.pct_change)}</span>
+                        </div>
+                        <div className="text-xs text-slate-500 mt-2">{formatDisplayDate(row.previous_invoice_date)} {'->'} {formatDisplayDate(row.latest_invoice_date)}</div>
+                      </div>
+                    )) : <div className="text-sm text-slate-500">Không có sản phẩm tăng giá.</div>}
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-emerald-300">Giảm giá</div>
+                    {costReport && costReport.price_insights.decreased.length > 0 ? costReport.price_insights.decreased.map((row) => (
+                      <div key={`down-${row.product_key}`} className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 p-4">
+                        <div className="text-white font-semibold">{row.product_name}</div>
+                        <div className="text-xs text-slate-400 mt-1">{row.vendor_name}</div>
+                        <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                          <span className="text-slate-300">{formatNZD(row.previous_price_ex_gst)} {'->'} {formatNZD(row.latest_price_ex_gst)}</span>
+                          <span className="text-emerald-300 font-bold">{formatPct(row.pct_change)}</span>
+                        </div>
+                        <div className="text-xs text-slate-500 mt-2">{formatDisplayDate(row.previous_invoice_date)} {'->'} {formatDisplayDate(row.latest_invoice_date)}</div>
+                      </div>
+                    )) : <div className="text-sm text-slate-500">Không có sản phẩm giảm giá.</div>}
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-800">
+                <h2 className="text-white font-bold">Theo sản phẩm</h2>
+                <p className="text-sm text-slate-400 mt-1">Chi phí sản phẩm được tính từ item `exclude GST` và quy đổi `incl GST = ex * 1.15`.</p>
+              </div>
+              {costReport && costReport.product_summary.length > 0 ? (
+                <>
+                  <div className="hidden xl:block overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                          <th className="px-4 py-3 text-left">Sản phẩm</th>
+                          <th className="px-4 py-3 text-left">Nhà cung cấp</th>
+                          <th className="px-4 py-3 text-left">Unit</th>
+                          <th className="px-4 py-3 text-right">Qty</th>
+                          <th className="px-4 py-3 text-right">Ex GST</th>
+                          <th className="px-4 py-3 text-right">Incl GST</th>
+                          <th className="px-4 py-3 text-right">Giá gần nhất</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {costReport.product_summary.map((row) => (
+                          <tr key={`${row.product_key}-${row.vendor_name}`} className="border-b border-slate-800/60">
+                            <td className="px-4 py-3 text-white font-semibold">{row.product_name}</td>
+                            <td className="px-4 py-3 text-slate-300">{row.vendor_name}</td>
+                            <td className="px-4 py-3 text-slate-400 font-mono text-xs">{row.unit ?? '—'}</td>
+                            <td className="px-4 py-3 text-right text-slate-300 font-mono">{row.total_qty}</td>
+                            <td className="px-4 py-3 text-right text-slate-300 font-mono">{formatNZD(row.total_ex_gst)}</td>
+                            <td className="px-4 py-3 text-right text-emerald-400 font-mono font-bold">{formatNZD(row.total_inc_gst)}</td>
+                            <td className="px-4 py-3 text-right text-slate-300 font-mono">{row.last_price_ex_gst === null ? '—' : formatNZD(row.last_price_ex_gst)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="xl:hidden p-4 space-y-3">
+                    {costReport.product_summary.map((row) => (
+                      <div key={`${row.product_key}-${row.vendor_name}`} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                        <div className="text-white font-semibold">{row.product_name}</div>
+                        <div className="text-xs text-slate-400 mt-1">{row.vendor_name} · {row.unit ?? '—'}</div>
+                        <div className="grid grid-cols-2 gap-3 text-sm mt-3">
+                          <div className="text-slate-400">Qty <span className="text-slate-200 font-mono ml-2">{row.total_qty}</span></div>
+                          <div className="text-slate-400">Giá gần nhất <span className="text-slate-200 font-mono ml-2">{row.last_price_ex_gst === null ? '—' : formatNZD(row.last_price_ex_gst)}</span></div>
+                          <div className="text-slate-400">Ex GST <span className="text-slate-200 font-mono ml-2">{formatNZD(row.total_ex_gst)}</span></div>
+                          <div className="text-slate-400">Incl GST <span className="text-emerald-300 font-mono ml-2">{formatNZD(row.total_inc_gst)}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="px-5 py-12 text-sm text-slate-500">Không có dữ liệu sản phẩm trong bộ lọc này.</div>
+              )}
+            </section>
+          </div>
         )}
       </main>
     </div>
