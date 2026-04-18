@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
         id: job.id,
         status: job.status,
         invoice_id: job.invoice_id,
+        public_url: job.public_url,
         attempts: job.attempts,
         max_attempts: job.max_attempts,
         error_code: job.error_code,

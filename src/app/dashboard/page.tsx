@@ -92,6 +92,7 @@ type OcrJob = {
 };
 
 type ActiveOcrJob = OcrJob & {
+  public_url?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -2235,7 +2236,7 @@ export default function DashboardPage() {
                   <button
                     key={job.id}
                     type="button"
-                    onClick={() => setJobPreview({ jobId: job.id, imageUrl: (job as unknown as { public_url?: string | null }).public_url ?? null })}
+                    onClick={() => setJobPreview({ jobId: job.id, imageUrl: job.public_url ?? null })}
                     className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-left hover:border-slate-600 transition-colors"
                   >
                     <div className="flex items-start justify-between gap-3">
