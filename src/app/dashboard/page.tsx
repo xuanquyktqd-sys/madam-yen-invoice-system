@@ -91,10 +91,22 @@ type OcrJob = {
   next_run_at: string | null;
 };
 
+type ActiveOcrJob = OcrJob & {
+  created_at?: string;
+  updated_at?: string;
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const formatNZD = (n: number) =>
   new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(n);
 const formatPct = (n: number) => `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
+const formatRelativeWait = (value: string | null) => {
+  if (!value) return null;
+  const diffMs = new Date(value).getTime() - Date.now();
+  if (diffMs <= 0) return 'đang chạy lại';
+  const seconds = Math.max(1, Math.round(diffMs / 1000));
+  return `thử lại sau ${seconds}s`;
+};
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const formatYmdLocal = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -183,10 +195,12 @@ export default function DashboardPage() {
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' | 'warn' } | null>(null);
   const [activeOcrJobId, setActiveOcrJobId] = useState<string | null>(null);
   const [uploadModalHidden, setUploadModalHidden] = useState(false);
+  const [activeOcrJobs, setActiveOcrJobs] = useState<ActiveOcrJob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollTimerRef = useRef<number | null>(null);
   const pollStartedAtRef = useRef<number>(0);
   const autoRetryTriggeredRef = useRef(false);
+  const activeJobsPollRef = useRef<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reviewMenuOpen, setReviewMenuOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -349,6 +363,20 @@ export default function DashboardPage() {
     return (obj?.invoice as Invoice | undefined) ?? null;
   }, []);
 
+  const fetchActiveOcrJobs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ocr-jobs?limit=8');
+      const { json, text } = await safeReadJson(res);
+      const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
+      if (!res.ok) {
+        throw new Error(String(obj?.error ?? text ?? 'Không tải được OCR jobs'));
+      }
+      setActiveOcrJobs(Array.isArray(obj?.jobs) ? (obj.jobs as ActiveOcrJob[]) : []);
+    } catch {
+      setActiveOcrJobs([]);
+    }
+  }, []);
+
   const fetchCostReport = useCallback(async () => {
     setReportLoading(true);
     try {
@@ -386,9 +414,26 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
   useEffect(() => { fetchCostReport(); }, [fetchCostReport]);
+  useEffect(() => { fetchActiveOcrJobs(); }, [fetchActiveOcrJobs]);
   useEffect(() => () => {
     if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+    if (activeJobsPollRef.current) window.clearTimeout(activeJobsPollRef.current);
   }, []);
+  useEffect(() => {
+    if (activeJobsPollRef.current) window.clearTimeout(activeJobsPollRef.current);
+    const hasRunningJobs = activeOcrJobs.length > 0 || uploadStep === 'processing';
+    if (!hasRunningJobs) return;
+
+    const tick = () => {
+      void fetchActiveOcrJobs();
+      activeJobsPollRef.current = window.setTimeout(tick, 5000);
+    };
+
+    activeJobsPollRef.current = window.setTimeout(tick, 5000);
+    return () => {
+      if (activeJobsPollRef.current) window.clearTimeout(activeJobsPollRef.current);
+    };
+  }, [activeOcrJobs.length, uploadStep, fetchActiveOcrJobs]);
   useEffect(() => {
     // Optional catalog endpoints (safe to fail before DB migration is applied)
     void Promise.all([
@@ -2083,6 +2128,59 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
+
+        {activeOcrJobs.length > 0 && (
+          <section className="bg-slate-900 border border-emerald-900/40 rounded-2xl p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-white font-bold">Hóa đơn đang xử lý</h2>
+                <p className="text-sm text-slate-400 mt-1">Bạn có thể tiếp tục dùng app, OCR vẫn chạy nền.</p>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 text-xs font-semibold border border-emerald-500/20">
+                {activeOcrJobs.length} job
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              {activeOcrJobs.map((job) => {
+                const err = (job.error_message || '').toLowerCase();
+                const isBackoff = job.status === 'queued' && (
+                  err.includes('high demand') || err.includes('"code": 503') || err.includes(' 503 ')
+                );
+                const subtitle = job.status === 'processing'
+                  ? 'Gemini đang đọc và bóc tách hóa đơn'
+                  : isBackoff
+                    ? `OCR quá tải, ${formatRelativeWait(job.next_run_at) || 'đang chờ thử lại'}`
+                    : 'Đang chờ worker nhận job';
+
+                return (
+                  <div key={job.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-white font-semibold">OCR Job {job.id.slice(0, 8)}</div>
+                        <div className="text-xs text-slate-400 mt-1">{subtitle}</div>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                        job.status === 'processing'
+                          ? 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+                          : isBackoff
+                            ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                            : 'bg-slate-800 text-slate-300 border border-slate-700'
+                      }`}>
+                        {job.status === 'processing' ? 'Đang OCR' : isBackoff ? 'Backoff' : 'Xếp hàng'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 mt-4 text-xs text-slate-500">
+                      <span>Lần thử {job.attempts}/{job.max_attempts}</span>
+                      <span>{job.next_run_at ? formatRelativeWait(job.next_run_at) ?? 'đang chạy' : 'đang chạy'}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <div className="flex items-center gap-2">
           {([

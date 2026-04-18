@@ -65,6 +65,18 @@ export async function getOcrJob(jobId: string): Promise<OcrJobRecord | null> {
   return (data as OcrJobRecord | null) ?? null;
 }
 
+export async function listActiveOcrJobs(limit = 10): Promise<OcrJobRecord[]> {
+  const { data, error } = await supabaseAdmin
+    .from('ocr_jobs')
+    .select('*')
+    .in('status', ['queued', 'processing'])
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(limit, 20)));
+
+  if (error) throw new Error(error.message);
+  return (data as OcrJobRecord[] | null) ?? [];
+}
+
 export async function queueOcrJob(input: {
   id: string;
   bucket: string;
