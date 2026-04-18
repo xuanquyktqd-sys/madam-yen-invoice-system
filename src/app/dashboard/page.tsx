@@ -196,6 +196,7 @@ export default function DashboardPage() {
   const [activeOcrJobId, setActiveOcrJobId] = useState<string | null>(null);
   const [uploadModalHidden, setUploadModalHidden] = useState(false);
   const [activeOcrJobs, setActiveOcrJobs] = useState<ActiveOcrJob[]>([]);
+  const [activeJobRetryId, setActiveJobRetryId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollTimerRef = useRef<number | null>(null);
   const pollStartedAtRef = useRef<number>(0);
@@ -376,6 +377,25 @@ export default function DashboardPage() {
       setActiveOcrJobs([]);
     }
   }, []);
+
+  const retryActiveOcrJob = useCallback(async (jobId: string) => {
+    setActiveJobRetryId(jobId);
+    try {
+      const res = await fetch(`/api/ocr-jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+      const { json, text } = await safeReadJson(res);
+      const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
+      if (!res.ok) {
+        throw new Error(String(obj?.error ?? text ?? 'Không chạy lại được OCR job'));
+      }
+
+      showToast('Đã kích hoạt lại OCR job', 'success');
+      await fetchActiveOcrJobs();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setActiveJobRetryId(null);
+    }
+  }, [fetchActiveOcrJobs]);
 
   const fetchCostReport = useCallback(async () => {
     setReportLoading(true);
@@ -2147,6 +2167,10 @@ export default function DashboardPage() {
                 const isBackoff = job.status === 'queued' && (
                   err.includes('high demand') || err.includes('"code": 503') || err.includes(' 503 ')
                 );
+                const canRetryNow =
+                  job.status === 'queued' &&
+                  !!job.next_run_at &&
+                  new Date(job.next_run_at).getTime() <= Date.now();
                 const subtitle = job.status === 'processing'
                   ? 'Gemini đang đọc và bóc tách hóa đơn'
                   : isBackoff
@@ -2173,7 +2197,19 @@ export default function DashboardPage() {
 
                     <div className="flex items-center justify-between gap-3 mt-4 text-xs text-slate-500">
                       <span>Lần thử {job.attempts}/{job.max_attempts}</span>
-                      <span>{job.next_run_at ? formatRelativeWait(job.next_run_at) ?? 'đang chạy' : 'đang chạy'}</span>
+                      <div className="flex items-center gap-2">
+                        <span>{job.next_run_at ? formatRelativeWait(job.next_run_at) ?? 'đang chạy' : 'đang chạy'}</span>
+                        {canRetryNow && (
+                          <button
+                            type="button"
+                            onClick={() => void retryActiveOcrJob(job.id)}
+                            disabled={activeJobRetryId === job.id}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold disabled:opacity-60"
+                          >
+                            {activeJobRetryId === job.id ? 'Đang gọi...' : 'Chạy lại'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
