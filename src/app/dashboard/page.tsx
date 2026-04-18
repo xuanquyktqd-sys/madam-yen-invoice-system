@@ -96,6 +96,27 @@ type ActiveOcrJob = OcrJob & {
   updated_at?: string;
 };
 
+type OcrNotification = {
+  id: string;
+  status: 'succeeded' | 'failed';
+  invoice_id: string | null;
+  public_url: string | null;
+  attempts: number;
+  max_attempts: number;
+  error_message: string | null;
+  ocr_provider: string | null;
+  ocr_model: string | null;
+  created_at: string;
+  finished_at: string | null;
+  invoice: null | {
+    id: string;
+    vendor_name: string;
+    invoice_number: string | null;
+    invoice_date: string | null;
+    total_amount: string | number | null;
+  };
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const formatNZD = (n: number) =>
   new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(n);
@@ -197,6 +218,10 @@ export default function DashboardPage() {
   const [uploadModalHidden, setUploadModalHidden] = useState(false);
   const [activeOcrJobs, setActiveOcrJobs] = useState<ActiveOcrJob[]>([]);
   const [activeJobRetryId, setActiveJobRetryId] = useState<string | null>(null);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [ocrNotifications, setOcrNotifications] = useState<OcrNotification[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [jobPreview, setJobPreview] = useState<null | { jobId: string; imageUrl: string | null }>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollTimerRef = useRef<number | null>(null);
   const pollStartedAtRef = useRef<number>(0);
@@ -378,6 +403,21 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const fetchOcrNotifications = useCallback(async () => {
+    setNotifLoading(true);
+    try {
+      const res = await fetch('/api/ocr-jobs/notifications?limit=20');
+      const { json, text } = await safeReadJson(res);
+      const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
+      if (!res.ok) throw new Error(String(obj?.error ?? text ?? 'Không tải được notifications'));
+      setOcrNotifications(Array.isArray(obj?.notifications) ? (obj.notifications as OcrNotification[]) : []);
+    } catch {
+      setOcrNotifications([]);
+    } finally {
+      setNotifLoading(false);
+    }
+  }, []);
+
   const retryActiveOcrJob = useCallback(async (jobId: string) => {
     setActiveJobRetryId(jobId);
     try {
@@ -435,6 +475,7 @@ export default function DashboardPage() {
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
   useEffect(() => { fetchCostReport(); }, [fetchCostReport]);
   useEffect(() => { fetchActiveOcrJobs(); }, [fetchActiveOcrJobs]);
+  useEffect(() => { fetchOcrNotifications(); }, [fetchOcrNotifications]);
   useEffect(() => () => {
     if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
     if (activeJobsPollRef.current) window.clearTimeout(activeJobsPollRef.current);
@@ -2149,6 +2190,19 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setNotifOpen(true);
+              void fetchOcrNotifications();
+            }}
+            className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 text-sm font-semibold hover:border-slate-500"
+          >
+            Notifications
+          </button>
+        </div>
+
         {activeOcrJobs.length > 0 && (
           <section className="bg-slate-900 border border-emerald-900/40 rounded-2xl p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -2178,7 +2232,12 @@ export default function DashboardPage() {
                     : 'Đang chờ worker nhận job';
 
                 return (
-                  <div key={job.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => setJobPreview({ jobId: job.id, imageUrl: (job as unknown as { public_url?: string | null }).public_url ?? null })}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-left hover:border-slate-600 transition-colors"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-white font-semibold">OCR Job {job.id.slice(0, 8)}</div>
@@ -2211,11 +2270,96 @@ export default function DashboardPage() {
                         )}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </section>
+        )}
+
+        {jobPreview && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 rounded-2xl w-full max-w-3xl border border-slate-700 shadow-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <div className="text-white font-bold">OCR Job {jobPreview.jobId.slice(0, 8)}</div>
+                <button
+                  onClick={() => setJobPreview(null)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                  aria-label="Close"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-6">
+                {jobPreview.imageUrl ? (
+                  <div className="rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={jobPreview.imageUrl} alt="OCR job preview" className="w-full h-[70vh] object-contain" />
+                  </div>
+                ) : (
+                  <div className="text-slate-400 text-sm">Job này không có ảnh preview.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {notifOpen && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <div className="text-white font-bold">Notifications</div>
+                <button
+                  onClick={() => setNotifOpen(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                  aria-label="Close"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-6 space-y-3 max-h-[70vh] overflow-y-auto">
+                {notifLoading ? (
+                  <div className="text-slate-400 text-sm">Đang tải...</div>
+                ) : ocrNotifications.length === 0 ? (
+                  <div className="text-slate-400 text-sm">Chưa có thông báo.</div>
+                ) : (
+                  ocrNotifications.map((n) => (
+                    <div key={n.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-white font-semibold">
+                            {n.invoice?.vendor_name ? n.invoice.vendor_name : `OCR Job ${n.id.slice(0, 8)}`}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-1">
+                            {n.invoice?.invoice_number ? `#${n.invoice.invoice_number}` : ''}{' '}
+                            {n.invoice?.invoice_date ? `· ${formatDisplayDate(n.invoice.invoice_date)}` : ''}
+                          </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                          n.status === 'succeeded'
+                            ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+                            : 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+                        }`}>
+                          {n.status === 'succeeded' ? 'Xong' : 'Lỗi'}
+                        </span>
+                      </div>
+                      {n.status === 'failed' && (
+                        <div className="text-xs text-rose-200 mt-3">{n.error_message || 'OCR thất bại'}</div>
+                      )}
+                      <div className="flex items-center justify-between gap-3 mt-4 text-xs text-slate-500">
+                        <span>Job {n.id.slice(0, 8)}</span>
+                        <span>{n.ocr_model ? `${n.ocr_provider || 'gemini'}/${n.ocr_model}` : ''}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         <div className="flex items-center gap-2">
