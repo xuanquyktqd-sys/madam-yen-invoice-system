@@ -3,7 +3,7 @@
  * Skill: ORC vision/Skill.md + ocr-system-prompt.md
  *
  * Rules:
- *  - Default provider: DeepInfra (OpenAI-compatible) using Llama 4 Scout
+ *  - Default provider: DeepInfra (OpenAI-compatible) using DeepSeek OCR
  *  - Optional fallback: Google Gemini (OpenAI-compatible endpoint)
  *  - Output: Strict JSON matching invoice-sample.json schema
  *  - Financial: GST = 15% NZ; always validate subtotal + gst = total
@@ -137,7 +137,7 @@ const PRIMARY: ProviderConfig = {
   baseURL: 'https://api.deepinfra.com/v1/openai',
   apiKey: process.env.DEEPINFRA_API_KEY ?? process.env.OPENAI_API_KEY,
   // DeepInfra model ids vary by account/region; override with OCR_MODEL_PRIMARY when needed.
-  model: process.env.OCR_MODEL_PRIMARY ?? 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
+  model: process.env.OCR_MODEL_PRIMARY ?? 'deepseek-ai/DeepSeek-OCR',
 };
 
 const FALLBACK: ProviderConfig = {
@@ -234,7 +234,7 @@ export type OcrRunMeta = {
 /**
  * Main OCR function with automatic failover:
  *  - Uses OpenAI SDK with an OpenAI-compatible baseURL.
- *  - Primary: DeepInfra (Llama 4 Scout).
+ *  - Primary: DeepInfra (DeepSeek OCR).
  *  - Fallback: Gemini 2.5 Flash (OpenAI-compatible endpoint)
  */
 export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: InvoiceData; meta: OcrRunMeta }> {
@@ -328,11 +328,7 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
   const configuredModel = (process.env.OCR_MODEL_PRIMARY ?? '').trim();
   const primaryModelCandidates = configuredModel
     ? [configuredModel]
-    : [
-        // DeepInfra commonly follows Hugging Face repo ids (case-sensitive).
-        'meta-llama/Llama-4-Scout-17B-16E-Instruct',
-        'meta-llama/llama-4-scout-17b-16e-instruct',
-      ];
+    : ['deepseek-ai/DeepSeek-OCR'];
 
   for (let providerIndex = 0; providerIndex < providers.length; providerIndex++) {
     const { cfg: baseCfg, attempts } = providers[providerIndex]!;
