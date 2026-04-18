@@ -491,9 +491,21 @@ export default function DashboardPage() {
             }
 
             if (job.status === 'queued') {
-              setProcessingMsg('Ảnh đã lên hàng đợi OCR. Hệ thống đang gọi Gemini...');
+              const err = (job.error_message || '').toLowerCase();
+              const nextRunAtMs = job.next_run_at ? new Date(job.next_run_at).getTime() : null;
+              const waitMs = nextRunAtMs !== null ? nextRunAtMs - Date.now() : null;
+              const isHighDemand = err.includes('high demand') || err.includes('"code": 503') || err.includes(' 503 ');
+
+              if (isHighDemand) {
+                const seconds = waitMs !== null ? Math.max(1, Math.round(waitMs / 1000)) : 60;
+                setProcessingMsg(`OCR đang quá tải. Hệ thống sẽ thử lại sau khoảng ${seconds}s...`);
+              } else {
+                setProcessingMsg('Ảnh đã lên hàng đợi OCR. Hệ thống đang gọi Gemini...');
+              }
+
               const elapsedMs = Date.now() - pollStartedAtRef.current;
-              if (elapsedMs > 15000 && !autoRetryTriggeredRef.current) {
+              const canTriggerNow = nextRunAtMs === null || nextRunAtMs <= Date.now();
+              if (elapsedMs > 15000 && canTriggerNow && !isHighDemand && !autoRetryTriggeredRef.current) {
                 autoRetryTriggeredRef.current = true;
                 await retryExistingJob(jobId);
                 setProcessingMsg('Đã kích hoạt lại worker OCR. Tiếp tục chờ kết quả...');
@@ -522,7 +534,14 @@ export default function DashboardPage() {
               return;
             }
 
-            const delay = delays[Math.min(attempt, delays.length - 1)];
+            let delay = delays[Math.min(attempt, delays.length - 1)];
+            if (job.status === 'queued' && job.next_run_at) {
+              const nextRunAtMs = new Date(job.next_run_at).getTime();
+              const waitMs = nextRunAtMs - Date.now();
+              if (waitMs > 0) {
+                delay = Math.min(delay, Math.max(2000, Math.min(8000, waitMs)));
+              }
+            }
             attempt += 1;
             pollTimerRef.current = window.setTimeout(() => { void tick(); }, delay);
           } catch (err) {

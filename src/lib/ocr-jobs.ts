@@ -97,11 +97,17 @@ export async function retryOcrJob(jobId: string, staleAfterSeconds = 300): Promi
   if (!job) throw new Error('OCR job not found');
 
   const now = Date.now();
+  const nextRunAt = job.next_run_at ? new Date(job.next_run_at).getTime() : null;
   const lockedAt = job.locked_at ? new Date(job.locked_at).getTime() : null;
   const isStaleProcessing =
     job.status === 'processing' &&
     lockedAt !== null &&
     now - lockedAt > staleAfterSeconds * 1000;
+
+  if (!isStaleProcessing && job.status === 'queued' && nextRunAt !== null && nextRunAt > now) {
+    const seconds = Math.max(1, Math.round((nextRunAt - now) / 1000));
+    throw new Error(`OCR job is backing off. Try again in ${seconds}s`);
+  }
 
   if (
     !isStaleProcessing &&
