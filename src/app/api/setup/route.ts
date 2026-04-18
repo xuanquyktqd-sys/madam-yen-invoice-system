@@ -335,6 +335,89 @@ BEGIN
       WITH CHECK (true);
   END IF;
 END $$;
+
+-- Async OCR queue
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ocr_job_id UUID;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_ocr_job_id_unique
+  ON invoices(ocr_job_id)
+  WHERE ocr_job_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS ocr_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  status TEXT NOT NULL DEFAULT 'queued',
+  storage_bucket TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  public_url TEXT,
+  invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  locked_at TIMESTAMPTZ,
+  locked_by TEXT,
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  ocr_provider TEXT,
+  ocr_model TEXT,
+  error_code TEXT,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status_next_run ON ocr_jobs(status, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_ocr_jobs_locked_at ON ocr_jobs(locked_at);
+CREATE INDEX IF NOT EXISTS idx_ocr_jobs_invoice_id ON ocr_jobs(invoice_id);
+
+ALTER TABLE ocr_jobs ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='ocr_jobs' AND policyname='Service role full access on ocr_jobs') THEN
+    CREATE POLICY "Service role full access on ocr_jobs"
+      ON ocr_jobs FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION claim_ocr_job(
+  p_job_id UUID,
+  p_worker_id TEXT,
+  p_stale_after_seconds INTEGER DEFAULT 300
+)
+RETURNS SETOF ocr_jobs
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  UPDATE ocr_jobs
+  SET
+    status = 'queued',
+    locked_at = NULL,
+    locked_by = NULL,
+    started_at = NULL,
+    updated_at = NOW()
+  WHERE id = p_job_id
+    AND status = 'processing'
+    AND locked_at IS NOT NULL
+    AND locked_at < NOW() - make_interval(secs => GREATEST(p_stale_after_seconds, 1));
+
+  RETURN QUERY
+  UPDATE ocr_jobs
+  SET
+    status = 'processing',
+    attempts = attempts + 1,
+    locked_at = NOW(),
+    locked_by = p_worker_id,
+    started_at = NOW(),
+    finished_at = NULL,
+    updated_at = NOW()
+  WHERE id = p_job_id
+    AND status = 'queued'
+    AND next_run_at <= NOW()
+    AND (locked_at IS NULL OR locked_at < NOW() - make_interval(secs => GREATEST(p_stale_after_seconds, 1)))
+  RETURNING *;
+END;
+$$;
 `;
 
 export async function POST() {

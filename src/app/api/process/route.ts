@@ -2,18 +2,17 @@
  * API Route: POST /api/process
  * Madam Yen IMS — Core Processing Pipeline
  *
- * Flow: Receive image → Optimize → Upload to Supabase Storage → OCR (AI) → Save to DB
+ * Flow: Receive image → Optimize → Upload to Supabase Storage → Enqueue OCR job → Trigger worker
  * Zero local storage at every step.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { optimizeImage, preValidate } from '@/lib/image-processor';
-import { extractInvoiceData } from '@/lib/ocr-service';
-import { uploadInvoiceImage } from '@/lib/storage-service';
-import { saveInvoice } from '@/lib/db-service';
+import { queueOcrJob, triggerOcrWorker } from '@/lib/ocr-jobs';
+import { uploadOcrJobImage } from '@/lib/storage-service';
 
 export const runtime = 'nodejs'; // Required for sharp + buffer operations
-export const maxDuration = 60;   // Keep within Vercel function limits; OCR has its own tighter budget.
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   console.log('[API] POST /api/process — new request');
@@ -61,64 +60,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ── Step 4: OCR via AI ─────────────────────────────────────────────
-    console.log('[API] Running OCR...');
-    let invoiceData;
-    let ocrMeta: { provider: string; model: string; fallbackUsed: boolean } | null = null;
+    // ── Step 4: Upload optimized image and enqueue job ─────────────────
+    const jobId = crypto.randomUUID();
+    console.log(`[API] Uploading optimized image for OCR job ${jobId}...`);
+    let upload;
     try {
-      const ocr = await extractInvoiceData(optimized.buffer);
-      invoiceData = ocr.data;
-      ocrMeta = ocr.meta;
-    } catch (ocrError) {
-      const msg = (ocrError as Error).message;
-      console.error('[API] OCR failed:', msg);
-      if (msg === 'MODEL_HIGH_DEMAND') {
-        return NextResponse.json({
-          error: 'OCR đang quá tải. Vui lòng thử lại sau 1 phút.',
-          step: 'ocr',
-          retryable: true,
-        }, {
-          status: 503,
-          headers: { 'Retry-After': '60' },
-        });
-      }
-      if (msg === 'OCR_OUTPUT_INVALID') {
-        return NextResponse.json({
-          error: 'OCR trả về dữ liệu không đúng định dạng (không phải JSON). Vui lòng thử lại (có thể đổi ảnh rõ hơn).',
-          step: 'ocr',
-          retryable: true,
-        }, { status: 502 });
-      }
-      if (msg.includes('OCR_TIMEOUT')) {
-        const timeoutMatch = msg.match(/OCR_TIMEOUT_(\d+)/);
-        const timeoutSeconds = timeoutMatch?.[1] ? Math.round(Number(timeoutMatch[1]) / 1000) : null;
-        return NextResponse.json({
-          error: timeoutSeconds
-            ? `OCR đã bị dừng sau khoảng ${timeoutSeconds} giây để tránh timeout của Vercel. Vui lòng thử lại với ảnh rõ hơn hoặc nhỏ hơn.`
-            : 'OCR xử lý quá lâu và đã bị dừng để tránh timeout của Vercel. Vui lòng thử lại với ảnh rõ hơn hoặc nhỏ hơn.',
-          step: 'ocr',
-          retryable: true,
-        }, { status: 504 });
-      }
-      return NextResponse.json({
-        error: `OCR thất bại: ${msg}`,
-        step: 'ocr',
-        retryable: true,
-      }, { status: 502 });
-    }
-
-    console.log(`[API] OCR done: ${invoiceData.invoice_metadata.vendor_name} — ${invoiceData.invoice_metadata.date}`);
-    if (ocrMeta) console.log(`[API] OCR model: ${ocrMeta.provider}/${ocrMeta.model}${ocrMeta.fallbackUsed ? ' (fallback)' : ''}`);
-
-    // ── Step 5: Upload to Supabase Storage ────────────────────────────
-    console.log('[API] Uploading to Supabase Storage...');
-    let imageUrl: string;
-    try {
-      imageUrl = await uploadInvoiceImage(
-        optimized.buffer,
-        invoiceData.invoice_metadata.vendor_name,
-        invoiceData.invoice_metadata.date
-      );
+      upload = await uploadOcrJobImage(optimized.buffer, jobId);
     } catch (storageError) {
       const msg = (storageError as Error).message;
       console.error('[API] Storage upload failed:', msg);
@@ -128,40 +75,44 @@ export async function POST(request: NextRequest) {
       }, { status: 502 });
     }
 
-    // ── Step 6: Save to Database ──────────────────────────────────────
-    console.log('[API] Saving to database...');
-    const saveResult = await saveInvoice(invoiceData, imageUrl);
-
-    if (saveResult.duplicate) {
+    try {
+      await queueOcrJob({
+        id: jobId,
+        bucket: upload.bucket,
+        path: upload.path,
+        publicUrl: upload.publicUrl,
+        maxAttempts: 3,
+      });
+    } catch (jobError) {
+      const msg = (jobError as Error).message;
+      console.error('[API] OCR job creation failed:', msg);
       return NextResponse.json({
-        warning: `Hóa đơn trùng lặp đã được phát hiện (ID: ${saveResult.invoiceId}). Không tạo bản ghi mới.`,
-        invoiceId: saveResult.invoiceId,
-        duplicate: true,
-        data: invoiceData,
-        imageUrl,
-      }, { status: 409 });
-    }
-
-    if (!saveResult.success) {
-      return NextResponse.json({
-        error: `Lưu database thất bại: ${saveResult.error}`,
-        step: 'database',
+        error: `Không tạo được OCR job: ${msg}`,
+        step: 'queue',
       }, { status: 500 });
     }
 
-    // ── Step 7: Return success ─────────────────────────────────────────
+    console.log(`[API] OCR job queued: ${jobId}`);
+    let triggered = false;
+    try {
+      triggered = await triggerOcrWorker(jobId);
+    } catch (err) {
+      console.error('[API] Worker trigger threw:', (err as Error).message);
+    }
+
+    // ── Step 5: Return immediately ─────────────────────────────────────
     return NextResponse.json({
       success: true,
-      invoiceId: saveResult.invoiceId,
-      imageUrl,
-      data: invoiceData,
-      ocr: ocrMeta,
+      jobId,
+      status: 'queued',
+      triggered,
+      imageUrl: upload.publicUrl,
       meta: {
         originalSizeKB: (inputBuffer.length / 1024).toFixed(0),
         optimizedSizeKB: optimized.sizeKB.toFixed(0),
         dimensions: `${optimized.width}x${optimized.height}`,
       },
-    }, { status: 200 });
+    }, { status: 202 });
 
   } catch (err) {
     const msg = (err as Error).message;

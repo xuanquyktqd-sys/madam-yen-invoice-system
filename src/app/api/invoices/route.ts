@@ -25,6 +25,7 @@ function parseYyyyMmDd(value: string | null): string | undefined {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
+  const id = searchParams.get('id')?.trim();
   const status = searchParams.get('status') ?? 'all';
   const search = searchParams.get('search') ?? '';
   const from = parseYyyyMmDd(searchParams.get('from'));
@@ -34,6 +35,14 @@ export async function GET(request: NextRequest) {
   const offset = (page - 1) * limit;
 
   try {
+    if (id) {
+      const invoice = await getInvoiceById(id);
+      if (!invoice) {
+        return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+      }
+      return NextResponse.json({ invoice });
+    }
+
     const { invoices, total } = await listInvoices({ status, search, from, to, limit, offset });
     return NextResponse.json({ invoices, total, page, limit });
   } catch (err) {

@@ -10,6 +10,7 @@ import { supabaseAdmin } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
 
 const BUCKET = 'invoice-images';
+const JOB_PREFIX = 'ocr-jobs';
 
 /**
  * Build storage path: YYYY/MM/vendor-DD-MM-uuid.jpg
@@ -63,6 +64,43 @@ export async function uploadInvoiceImage(
 
   console.log(`[Storage] ✅ Uploaded: ${storagePath}`);
   return urlData.publicUrl;
+}
+
+export function getInvoiceImageBucket(): string {
+  return BUCKET;
+}
+
+export function getInvoiceImagePublicUrl(storagePath: string): string {
+  const { data } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(storagePath);
+  if (!data?.publicUrl) {
+    throw new Error('Failed to get public URL');
+  }
+  return data.publicUrl;
+}
+
+export async function uploadOcrJobImage(
+  imageBuffer: Buffer,
+  jobId: string
+): Promise<{ bucket: string; path: string; publicUrl: string }> {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const storagePath = `${JOB_PREFIX}/${year}/${month}/${jobId}.jpg`;
+
+  const { error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .upload(storagePath, imageBuffer, {
+      contentType: 'image/jpeg',
+      upsert: true,
+    });
+
+  if (error) {
+    throw new Error(`Storage upload failed: ${error.message}`);
+  }
+
+  const publicUrl = getInvoiceImagePublicUrl(storagePath);
+  console.log(`[Storage] ✅ OCR job image uploaded: ${storagePath}`);
+  return { bucket: BUCKET, path: storagePath, publicUrl };
 }
 
 function tryGetStoragePathFromPublicUrl(publicUrl: string): string | null {

@@ -79,6 +79,18 @@ type CostReport = {
   };
 };
 
+type OcrJob = {
+  id: string;
+  status: 'queued' | 'processing' | 'succeeded' | 'failed';
+  invoice_id: string | null;
+  attempts: number;
+  max_attempts: number;
+  error_message: string | null;
+  ocr_provider: string | null;
+  ocr_model: string | null;
+  next_run_at: string | null;
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const formatNZD = (n: number) =>
   new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(n);
@@ -169,7 +181,11 @@ export default function DashboardPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [processingMsg, setProcessingMsg] = useState('');
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' | 'warn' } | null>(null);
+  const [activeOcrJobId, setActiveOcrJobId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollTimerRef = useRef<number | null>(null);
+  const pollStartedAtRef = useRef<number>(0);
+  const autoRetryTriggeredRef = useRef(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reviewMenuOpen, setReviewMenuOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -322,6 +338,16 @@ export default function DashboardPage() {
     }
   }, [filterStatus, search, dateFrom, dateTo]);
 
+  const fetchInvoiceById = useCallback(async (id: string): Promise<Invoice | null> => {
+    const res = await fetch(`/api/invoices?id=${encodeURIComponent(id)}`);
+    const { json, text } = await safeReadJson(res);
+    const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
+    if (!res.ok) {
+      throw new Error(String(obj?.error ?? text ?? 'Không tải được hóa đơn'));
+    }
+    return (obj?.invoice as Invoice | undefined) ?? null;
+  }, []);
+
   const fetchCostReport = useCallback(async () => {
     setReportLoading(true);
     try {
@@ -359,6 +385,9 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
   useEffect(() => { fetchCostReport(); }, [fetchCostReport]);
+  useEffect(() => () => {
+    if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+  }, []);
   useEffect(() => {
     // Optional catalog endpoints (safe to fail before DB migration is applied)
     void Promise.all([
@@ -426,45 +455,112 @@ export default function DashboardPage() {
   const handleConfirmAndProcess = async () => {
     if (!previewFile) return;
     setUploadStep('processing');
-    setProcessingMsg('Đang gửi ảnh lên hệ thống...');
+    setUploadError(null);
 
-    try {
-      const fd = new FormData();
-      fd.append('image', previewFile);
-
-      setProcessingMsg('Đang chạy OCR: DeepInfra (google/gemini-2.5-flash) — nếu lỗi sẽ chuyển Gemini 2.5 Flash (Google)...');
-      const res = await fetch('/api/process', { method: 'POST', body: fd });
+    const retryExistingJob = async (jobId: string) => {
+      setProcessingMsg('Đang yêu cầu hệ thống thử lại OCR...');
+      const res = await fetch(`/api/ocr-jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
-
-      if (res.status === 409) {
-        showToast(`⚠️ Hóa đơn trùng lặp! ${String(obj?.warning ?? '')}`.trim(), 'warn');
-        resetUpload();
-        return;
-      }
-
       if (!res.ok) {
-        const e = String(obj?.error ?? text ?? 'Lỗi không xác định');
-        if (res.status === 503) {
-          throw new Error(`${e} (bấm Thử lại)`);
-        }
-        throw new Error(e);
+        throw new Error(String(obj?.error ?? text ?? 'Không retry được OCR job'));
       }
+    };
 
-      const ocrLabel =
-        obj && typeof obj.ocr === 'object' && obj.ocr
-          ? `${String((obj.ocr as Record<string, unknown>).provider ?? '')}/${String((obj.ocr as Record<string, unknown>).model ?? '')}`
-          : '';
-      const vendorName =
-        obj && typeof obj.data === 'object' && obj.data
-          && typeof (obj.data as Record<string, unknown>).invoice_metadata === 'object'
-          && (obj.data as Record<string, unknown>).invoice_metadata
-          ? String(((obj.data as Record<string, unknown>).invoice_metadata as Record<string, unknown>).vendor_name ?? '')
-          : '';
-      setProcessingMsg(`Đã quét xong bằng ${ocrLabel || 'OCR model'} — đang lưu vào database...`);
-      showToast(`✅ Xử lý thành công: ${vendorName}${ocrLabel ? ` (${ocrLabel})` : ''}`.trim(), 'success');
-      setUploadStep('done');
-      await fetchInvoices();
+    const pollJob = async (jobId: string) => {
+      const delays = [2000, 3000, 5000, 8000];
+      let attempt = 0;
+
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+      pollStartedAtRef.current = Date.now();
+      autoRetryTriggeredRef.current = false;
+
+      return await new Promise<void>((resolve, reject) => {
+        const tick = async () => {
+          try {
+            const res = await fetch(`/api/ocr-jobs/${encodeURIComponent(jobId)}`);
+            const { json, text } = await safeReadJson(res);
+            const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
+            if (!res.ok) {
+              throw new Error(String(obj?.error ?? text ?? 'Không kiểm tra được trạng thái OCR'));
+            }
+
+            const job = (obj?.job as OcrJob | undefined) ?? null;
+            if (!job) {
+              throw new Error('OCR job response không hợp lệ');
+            }
+
+            if (job.status === 'queued') {
+              setProcessingMsg('Ảnh đã lên hàng đợi OCR. Hệ thống đang gọi Gemini...');
+              const elapsedMs = Date.now() - pollStartedAtRef.current;
+              if (elapsedMs > 15000 && !autoRetryTriggeredRef.current) {
+                autoRetryTriggeredRef.current = true;
+                await retryExistingJob(jobId);
+                setProcessingMsg('Đã kích hoạt lại worker OCR. Tiếp tục chờ kết quả...');
+              }
+            } else if (job.status === 'processing') {
+              setProcessingMsg('Gemini đang đọc hóa đơn...');
+            } else if (job.status === 'failed') {
+              throw new Error(job.error_message || 'OCR thất bại. Bạn có thể bấm Thử lại.');
+            } else if (job.status === 'succeeded') {
+              const invoiceId = job.invoice_id;
+              if (!invoiceId) {
+                throw new Error('OCR job đã xong nhưng chưa có invoice_id');
+              }
+              const invoice = await fetchInvoiceById(invoiceId);
+              setProcessingMsg(
+                `Đã quét xong bằng ${job.ocr_provider || 'gemini'}/${job.ocr_model || 'model'} — đang tải hóa đơn...`
+              );
+              await fetchInvoices();
+              if (invoice) setSelectedInvoice(invoice);
+              showToast(
+                `✅ Xử lý thành công${job.ocr_model ? ` (${job.ocr_provider || 'gemini'}/${job.ocr_model})` : ''}`,
+                'success'
+              );
+              setUploadStep('done');
+              resolve();
+              return;
+            }
+
+            const delay = delays[Math.min(attempt, delays.length - 1)];
+            attempt += 1;
+            pollTimerRef.current = window.setTimeout(() => { void tick(); }, delay);
+          } catch (err) {
+            reject(err);
+          }
+        };
+
+        void tick();
+      });
+    };
+
+    try {
+      if (activeOcrJobId && uploadStep === 'error') {
+        await retryExistingJob(activeOcrJobId);
+        setProcessingMsg('Đã gửi yêu cầu thử lại OCR...');
+        await pollJob(activeOcrJobId);
+      } else {
+        const fd = new FormData();
+        fd.append('image', previewFile);
+
+        setProcessingMsg('Đang gửi ảnh lên hệ thống...');
+        const res = await fetch('/api/process', { method: 'POST', body: fd });
+        const { json, text } = await safeReadJson(res);
+        const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
+
+        if (!res.ok) {
+          throw new Error(String(obj?.error ?? text ?? 'Lỗi không xác định'));
+        }
+
+        const jobId = typeof obj?.jobId === 'string' ? obj.jobId : '';
+        if (!jobId) {
+          throw new Error('Không nhận được jobId từ server');
+        }
+
+        setActiveOcrJobId(jobId);
+        setProcessingMsg('Ảnh đã được tải lên. Đang xếp vào hàng đợi OCR...');
+        await pollJob(jobId);
+      }
       setTimeout(() => resetUpload(), 2000);
     } catch (err) {
       setUploadError((err as Error).message);
@@ -473,11 +569,13 @@ export default function DashboardPage() {
   };
 
   const resetUpload = () => {
+    if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
     setUploadStep('idle');
     setPreviewUrl(null);
     setPreviewFile(null);
     setPreviewSizeKB(null);
     setUploadError(null);
+    setActiveOcrJobId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 

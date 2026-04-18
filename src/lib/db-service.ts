@@ -273,7 +273,8 @@ export async function getInvoiceById(id: string): Promise<Record<string, unknown
 // ── Save invoice + items ────────────────────────────────────────────────────
 export async function saveInvoice(
   data: InvoiceData,
-  imageUrl: string
+  imageUrl: string,
+  ocrJobId?: string
 ): Promise<SaveResult> {
   const { invoice_metadata, billing_info, line_items, totals } = data;
   const client = await pool.connect();
@@ -283,22 +284,46 @@ export async function saveInvoice(
     const invoiceDate = invoice_metadata.date;
     const totalAmount = totals.total_amount;
 
+    await client.query('BEGIN');
+
+    if (ocrJobId) {
+      const existingByJob = await client.query(
+        `SELECT id FROM invoices WHERE ocr_job_id = $1`,
+        [ocrJobId]
+      );
+      if (existingByJob.rows[0]?.id) {
+        await client.query('COMMIT');
+        return { success: true, invoiceId: existingByJob.rows[0].id };
+      }
+    }
+
     // De-dupe check
     const existingId = await checkDuplicate(vendorName, invoiceDate, totalAmount);
     if (existingId) {
+      if (ocrJobId) {
+        await client.query(
+          `UPDATE invoices
+           SET ocr_job_id = COALESCE(ocr_job_id, $2), updated_at = NOW()
+           WHERE id = $1`,
+          [existingId, ocrJobId]
+        );
+        await client.query('COMMIT');
+        console.warn(`[DB] ⚠️ Duplicate linked to OCR job: ${existingId}`);
+        return { success: true, invoiceId: existingId, duplicate: true };
+      }
+
+      await client.query('ROLLBACK');
       console.warn(`[DB] ⚠️ Duplicate: ${existingId}`);
       return { success: false, invoiceId: existingId, duplicate: true };
     }
-
-    await client.query('BEGIN');
 
     // Insert invoice
     const invRes = await client.query(
       `INSERT INTO invoices
         (type, vendor_name, vendor_address, vendor_gst_number, invoice_number,
          invoice_date, currency, is_tax_invoice, billing_name, billing_address,
-         sub_total, freight, gst_amount, total_amount, image_url, status, category)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         sub_total, freight, gst_amount, total_amount, image_url, status, category, ocr_job_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING id`,
       [
         invoice_metadata.type ?? 'Tax Invoice',
@@ -318,6 +343,7 @@ export async function saveInvoice(
         imageUrl,
         'pending_review',
         deriveCategory(vendorName),
+        ocrJobId ?? null,
       ]
     );
 
