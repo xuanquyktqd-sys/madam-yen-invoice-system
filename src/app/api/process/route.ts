@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     const validation = preValidate(inputBuffer, mimeType);
     if (!validation.valid) {
       return NextResponse.json({
-        error: validation.warning ?? 'Ảnh không hợp lệ.',
+        error: validation.warning ?? 'Invalid image.',
         step: 'validation',
       }, { status: 422 });
     }
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       const msg = (storageError as Error).message;
       console.error('[API] Storage upload failed:', msg);
       return NextResponse.json({
-        error: `Upload ảnh thất bại: ${msg}`,
+        error: `Image upload failed: ${msg}`,
         step: 'storage',
       }, { status: 502 });
     }
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       const msg = (jobError as Error).message;
       console.error('[API] OCR job creation failed:', msg);
       return NextResponse.json({
-        error: `Không tạo được OCR job: ${msg}`,
+        error: `Failed to create OCR job: ${msg}`,
         step: 'queue',
       }, { status: 500 });
     }

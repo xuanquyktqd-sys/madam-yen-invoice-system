@@ -125,9 +125,9 @@ const formatPct = (n: number) => `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
 const formatRelativeWait = (value: string | null) => {
   if (!value) return null;
   const diffMs = new Date(value).getTime() - Date.now();
-  if (diffMs <= 0) return 'đang chạy lại';
+  if (diffMs <= 0) return 'retrying';
   const seconds = Math.max(1, Math.round(diffMs / 1000));
-  return `thử lại sau ${seconds}s`;
+  return `retry in ${seconds}s`;
 };
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -161,9 +161,9 @@ const calcTotalsFromRows = (
 };
 
 const statusConfig = {
-  pending_review: { label: 'Chờ duyệt', bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-400' },
-  approved: { label: 'Đã duyệt', bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-400' },
-  rejected: { label: 'Từ chối', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-400' },
+  pending_review: { label: 'Pending', bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-400' },
+  approved: { label: 'Approved', bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-400' },
+  rejected: { label: 'Rejected', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-400' },
 };
 
 const safeReadJson = async (res: Response): Promise<{ json: unknown; text: string }> => {
@@ -326,7 +326,7 @@ export default function DashboardPage() {
     }
 
     if (preset === 'custom') {
-      // Pause date filter until user clicks "Áp dụng"
+      // Pause date filter until user clicks "Apply"
       setDateFrom('');
       setDateTo('');
       return;
@@ -350,7 +350,7 @@ export default function DashboardPage() {
     const f = customFrom.trim();
     const t = customTo.trim();
     if (!f || !t) {
-      showToast('Chọn Từ ngày và Đến ngày', 'error');
+      showToast('Select both From and To dates', 'error');
       return;
     }
     const from = f <= t ? f : t;
@@ -374,7 +374,7 @@ export default function DashboardPage() {
       setInvoices(json.invoices ?? []);
       setTotalCount(json.total ?? 0);
     } catch {
-      showToast('Không tải được danh sách hóa đơn', 'error');
+      showToast('Failed to load invoices', 'error');
     } finally {
       setLoading(false);
     }
@@ -385,7 +385,7 @@ export default function DashboardPage() {
     const { json, text } = await safeReadJson(res);
     const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
     if (!res.ok) {
-      throw new Error(String(obj?.error ?? text ?? 'Không tải được hóa đơn'));
+      throw new Error(String(obj?.error ?? text ?? 'Failed to load invoice'));
     }
     return (obj?.invoice as Invoice | undefined) ?? null;
   }, []);
@@ -396,7 +396,7 @@ export default function DashboardPage() {
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
       if (!res.ok) {
-        throw new Error(String(obj?.error ?? text ?? 'Không tải được OCR jobs'));
+        throw new Error(String(obj?.error ?? text ?? 'Failed to load OCR jobs'));
       }
       setActiveOcrJobs(Array.isArray(obj?.jobs) ? (obj.jobs as ActiveOcrJob[]) : []);
     } catch {
@@ -410,7 +410,7 @@ export default function DashboardPage() {
       const res = await fetch('/api/ocr-jobs/notifications?limit=20');
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
-      if (!res.ok) throw new Error(String(obj?.error ?? text ?? 'Không tải được notifications'));
+      if (!res.ok) throw new Error(String(obj?.error ?? text ?? 'Failed to load notifications'));
       setOcrNotifications(Array.isArray(obj?.notifications) ? (obj.notifications as OcrNotification[]) : []);
     } catch {
       setOcrNotifications([]);
@@ -425,11 +425,9 @@ export default function DashboardPage() {
       const res = await fetch(`/api/ocr-jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
-      if (!res.ok) {
-        throw new Error(String(obj?.error ?? text ?? 'Không chạy lại được OCR job'));
-      }
+      if (!res.ok) throw new Error(String(obj?.error ?? text ?? 'Failed to retry OCR job'));
 
-      showToast('Đã kích hoạt lại OCR job', 'success');
+      showToast('OCR job triggered', 'success');
       await fetchActiveOcrJobs();
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -450,7 +448,7 @@ export default function DashboardPage() {
       const res = await fetch(`/api/reports/cost?${params.toString()}`);
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(typeof json?.error === 'string' ? json.error : 'Không tải được báo cáo chi phí');
+        throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to load cost report');
       }
       setCostReport({
         vendor_summary: Array.isArray(json?.vendor_summary) ? json.vendor_summary : [],
@@ -461,7 +459,7 @@ export default function DashboardPage() {
         },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không tải được báo cáo chi phí';
+      const message = err instanceof Error ? err.message : 'Failed to load cost report';
       showToast(message, 'error');
       setCostReport({
         vendor_summary: [],
@@ -568,12 +566,12 @@ export default function DashboardPage() {
     setUploadModalHidden(false);
 
     const retryExistingJob = async (jobId: string) => {
-      setProcessingMsg('Đang yêu cầu hệ thống thử lại OCR...');
+      setProcessingMsg('Requesting OCR retry...');
       const res = await fetch(`/api/ocr-jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
       if (!res.ok) {
-        throw new Error(String(obj?.error ?? text ?? 'Không retry được OCR job'));
+        throw new Error(String(obj?.error ?? text ?? 'Failed to retry OCR job'));
       }
     };
 
@@ -592,12 +590,12 @@ export default function DashboardPage() {
             const { json, text } = await safeReadJson(res);
             const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
             if (!res.ok) {
-              throw new Error(String(obj?.error ?? text ?? 'Không kiểm tra được trạng thái OCR'));
+              throw new Error(String(obj?.error ?? text ?? 'Failed to check OCR status'));
             }
 
             const job = (obj?.job as OcrJob | undefined) ?? null;
             if (!job) {
-              throw new Error('OCR job response không hợp lệ');
+              throw new Error('Invalid OCR job response');
             }
 
             if (job.status === 'queued') {
@@ -608,9 +606,9 @@ export default function DashboardPage() {
 
               if (isHighDemand) {
                 const seconds = waitMs !== null ? Math.max(1, Math.round(waitMs / 1000)) : 60;
-                setProcessingMsg(`OCR đang quá tải. Hệ thống sẽ thử lại sau khoảng ${seconds}s...`);
+                setProcessingMsg(`OCR is overloaded. Retrying in about ${seconds}s...`);
               } else {
-                setProcessingMsg('Ảnh đã lên hàng đợi OCR. Hệ thống đang gọi Gemini...');
+                setProcessingMsg('Image queued for OCR. Calling Gemini...');
               }
 
               const elapsedMs = Date.now() - pollStartedAtRef.current;
@@ -618,25 +616,25 @@ export default function DashboardPage() {
               if (elapsedMs > 15000 && canTriggerNow && !isHighDemand && !autoRetryTriggeredRef.current) {
                 autoRetryTriggeredRef.current = true;
                 await retryExistingJob(jobId);
-                setProcessingMsg('Đã kích hoạt lại worker OCR. Tiếp tục chờ kết quả...');
+                setProcessingMsg('OCR worker triggered again. Waiting for results...');
               }
             } else if (job.status === 'processing') {
-              setProcessingMsg('Gemini đang đọc hóa đơn...');
+              setProcessingMsg('Gemini is reading the invoice...');
             } else if (job.status === 'failed') {
-              throw new Error(job.error_message || 'OCR thất bại. Bạn có thể bấm Thử lại.');
+              throw new Error(job.error_message || 'OCR failed. You can click Retry.');
             } else if (job.status === 'succeeded') {
               const invoiceId = job.invoice_id;
               if (!invoiceId) {
-                throw new Error('OCR job đã xong nhưng chưa có invoice_id');
+                throw new Error('OCR job succeeded but invoice_id is missing');
               }
               const invoice = await fetchInvoiceById(invoiceId);
               setProcessingMsg(
-                `Đã quét xong bằng ${job.ocr_provider || 'gemini'}/${job.ocr_model || 'model'} — đang tải hóa đơn...`
+                `Scanned with ${job.ocr_provider || 'gemini'}/${job.ocr_model || 'model'} — loading invoice...`
               );
               await fetchInvoices();
               if (invoice) setSelectedInvoice(invoice);
               showToast(
-                `✅ Xử lý thành công${job.ocr_model ? ` (${job.ocr_provider || 'gemini'}/${job.ocr_model})` : ''}`,
+                `Success${job.ocr_model ? ` (${job.ocr_provider || 'gemini'}/${job.ocr_model})` : ''}`,
                 'success'
               );
               setUploadStep('done');
@@ -666,28 +664,28 @@ export default function DashboardPage() {
     try {
       if (activeOcrJobId && uploadStep === 'error') {
         await retryExistingJob(activeOcrJobId);
-        setProcessingMsg('Đã gửi yêu cầu thử lại OCR...');
+        setProcessingMsg('Retry request sent...');
         await pollJob(activeOcrJobId);
       } else {
         const fd = new FormData();
         fd.append('image', previewFile);
 
-        setProcessingMsg('Đang gửi ảnh lên hệ thống...');
+        setProcessingMsg('Uploading image...');
         const res = await fetch('/api/process', { method: 'POST', body: fd });
         const { json, text } = await safeReadJson(res);
         const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
 
         if (!res.ok) {
-          throw new Error(String(obj?.error ?? text ?? 'Lỗi không xác định'));
+          throw new Error(String(obj?.error ?? text ?? 'Unknown error'));
         }
 
         const jobId = typeof obj?.jobId === 'string' ? obj.jobId : '';
         if (!jobId) {
-          throw new Error('Không nhận được jobId từ server');
+          throw new Error('No jobId returned from server');
         }
 
         setActiveOcrJobId(jobId);
-        setProcessingMsg('Ảnh đã được tải lên. Đang xếp vào hàng đợi OCR...');
+        setProcessingMsg('Image uploaded. Queuing OCR job...');
         await pollJob(jobId);
       }
       setTimeout(() => resetUpload(), 2000);
@@ -718,7 +716,7 @@ export default function DashboardPage() {
       body: JSON.stringify({ id, status }),
     });
     if (res.ok) {
-      showToast(status === 'approved' ? '✅ Đã duyệt hóa đơn' : '❌ Đã từ chối hóa đơn', 'success');
+      showToast(status === 'approved' ? 'Invoice approved' : 'Invoice rejected', 'success');
       await fetchInvoices();
       if (selectedInvoice?.id === id) {
         setSelectedInvoice((prev) => prev ? { ...prev, status } : prev);
@@ -728,7 +726,7 @@ export default function DashboardPage() {
 
   // ── Delete invoice ─────────────────────────────────────────────────────────
   const deleteInvoice = async (id: string) => {
-    const ok = window.confirm('Xoá hóa đơn này? Hành động này không thể hoàn tác.');
+    const ok = window.confirm('Delete this invoice? This action cannot be undone.');
     if (!ok) return;
 
     const res = await fetch('/api/invoices', {
@@ -738,14 +736,14 @@ export default function DashboardPage() {
     });
 
     if (res.ok) {
-      showToast('🗑️ Đã xoá hóa đơn', 'success');
+      showToast('Invoice deleted', 'success');
       if (selectedInvoice?.id === id) setSelectedInvoice(null);
       await fetchInvoices();
       return;
     }
 
     const json = await res.json().catch(() => ({}));
-    showToast(json.error ?? 'Không xoá được hóa đơn', 'error');
+    showToast(json.error ?? 'Failed to delete invoice', 'error');
   };
 
   const openManualModal = () => {
@@ -775,7 +773,7 @@ export default function DashboardPage() {
 
   const submitManualInvoice = async () => {
     if (!manualForm.vendor_name.trim() || !manualForm.invoice_date.trim()) {
-      showToast('Vui lòng nhập Nhà cung cấp và Ngày', 'error');
+      showToast('Please enter Vendor and Date', 'error');
       return;
     }
 
@@ -823,14 +821,14 @@ export default function DashboardPage() {
       const json = await res.json().catch(() => ({}));
 
       if (res.status === 409) {
-        showToast('⚠️ Hóa đơn trùng lặp (duplicate)', 'warn');
+        showToast('⚠️ Duplicate invoice', 'warn');
         return;
       }
       if (!res.ok) {
-        throw new Error(json.error ?? 'Tạo hóa đơn thất bại');
+        throw new Error(json.error ?? 'Failed to create invoice');
       }
 
-      showToast('✅ Đã thêm hóa đơn thủ công', 'success');
+      showToast('Manual invoice created', 'success');
       setManualOpen(false);
       await fetchInvoices();
       if (json.invoice) {
@@ -929,7 +927,7 @@ export default function DashboardPage() {
       }));
 
     if (!items.length) {
-      showToast('Chọn ít nhất 1 mặt hàng để tạo credit note', 'error');
+      showToast('Select at least 1 item to create a credit note', 'error');
       return;
     }
 
@@ -946,9 +944,9 @@ export default function DashboardPage() {
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? 'Tạo credit note thất bại');
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create credit note');
 
-      showToast('✅ Đã tạo Credit Note', 'success');
+      showToast('Credit note created', 'success');
       setCreditOpen(false);
       await fetchInvoices();
       if (json.invoice) setSelectedInvoice(json.invoice);
@@ -977,7 +975,7 @@ export default function DashboardPage() {
   const saveEdit = async () => {
     if (!selectedInvoice) return;
     if (!editForm.vendor_name.trim() || !editForm.invoice_date.trim()) {
-      showToast('Vui lòng nhập Nhà cung cấp và Ngày', 'error');
+      showToast('Please enter Vendor and Date', 'error');
       return;
     }
 
@@ -1045,9 +1043,9 @@ export default function DashboardPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(json.error ?? 'Lưu chỉnh sửa thất bại');
+        throw new Error(json.error ?? 'Failed to save changes');
       }
-      showToast('✅ Đã lưu chỉnh sửa', 'success');
+      showToast('Changes saved', 'success');
       setEditMode(false);
       await fetchInvoices();
       if (json.invoice) setSelectedInvoice(json.invoice);
@@ -1061,7 +1059,7 @@ export default function DashboardPage() {
   // ── Export CSV ─────────────────────────────────────────────────────────────
   const exportCSV = () => {
     const rows = [
-      ['Ngày', 'Nhà cung cấp', 'Mã hóa đơn', 'Tổng tiền', 'GST', 'Trạng thái'],
+      ['Date', 'Vendor', 'Invoice #', 'Total', 'GST', 'Status'],
       ...invoices.map((i) => [
         i.invoice_date,
         i.vendor_name,
@@ -1149,13 +1147,13 @@ export default function DashboardPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              <span className="hidden sm:inline">Thêm hóa đơn</span>
-              <span className="sm:hidden">Thêm</span>
+              <span className="hidden sm:inline">Add invoice</span>
+              <span className="sm:hidden">Add</span>
             </label>
             <button
               onClick={openManualModal}
               className="hidden sm:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border border-slate-700">
-              ✍️ Thêm thủ công
+              ✍️ Manual entry
             </button>
             <input
               id="invoice-upload"
@@ -1179,7 +1177,7 @@ export default function DashboardPage() {
             {/* Mobile hamburger */}
             <button
               type="button"
-              aria-label="Mở menu"
+              aria-label="Open menu"
               onClick={() => setMobileMenuOpen(true)}
               className="sm:hidden w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
             >
@@ -1202,7 +1200,7 @@ export default function DashboardPage() {
             <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800">
               <div className="text-sm font-semibold text-slate-100">Menu</div>
               <button
-                aria-label="Đóng menu"
+                aria-label="Close menu"
                 onClick={() => setMobileMenuOpen(false)}
                 className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 flex items-center justify-center"
               >
@@ -1216,14 +1214,14 @@ export default function DashboardPage() {
                 onClick={() => { setMobileMenuOpen(false); openManualModal(); }}
                 className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
               >
-                <span className="font-semibold">✍️ Thêm thủ công</span>
+                <span className="font-semibold">✍️ Manual entry</span>
                 <span className="text-slate-400">→</span>
               </button>
               <button
                 onClick={() => { setMobileMenuOpen(false); exportCSV(); }}
                 className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
               >
-                <span className="font-semibold">⬇️ Xuất CSV</span>
+                <span className="font-semibold">⬇️ Export CSV</span>
                 <span className="text-slate-400">→</span>
               </button>
             </div>
@@ -1238,8 +1236,8 @@ export default function DashboardPage() {
             <div className="bg-slate-900 rounded-2xl w-full max-w-4xl border border-slate-700 shadow-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
                 <div>
-                  <h2 className="font-bold text-white text-lg">🧾 Tạo Credit Note</h2>
-                  <p className="text-xs text-slate-400 mt-1">Từ hoá đơn: {selectedInvoice.vendor_name} · #{selectedInvoice.invoice_number ?? '—'}</p>
+                  <h2 className="font-bold text-white text-lg">🧾 Create credit note</h2>
+                  <p className="text-xs text-slate-400 mt-1">From invoice: {selectedInvoice.vendor_name} · #{selectedInvoice.invoice_number ?? '—'}</p>
                 </div>
                 <button onClick={() => setCreditOpen(false)} className="text-slate-400 hover:text-white transition-colors">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1251,7 +1249,7 @@ export default function DashboardPage() {
               <div className="p-6 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <label className="text-sm sm:col-span-2">
-                    <div className="text-slate-400 mb-1">Credit Note Number (tuỳ chọn)</div>
+                    <div className="text-slate-400 mb-1">Credit note number (optional)</div>
                     <input
                       value={creditNumber}
                       onChange={(e) => setCreditNumber(e.target.value)}
@@ -1260,7 +1258,7 @@ export default function DashboardPage() {
                     />
                   </label>
                   <label className="text-sm">
-                    <div className="text-slate-400 mb-1">Ngày</div>
+                    <div className="text-slate-400 mb-1">Date</div>
                     <input
                       type="date"
                       value={creditDate}
@@ -1272,18 +1270,18 @@ export default function DashboardPage() {
 
                 <div className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
                   <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-                    <div className="text-sm font-semibold text-slate-200">Chọn mặt hàng cần credit</div>
+                    <div className="text-sm font-semibold text-slate-200">Select items to credit</div>
                     <button
                       onClick={() => setCreditRows((p) => p.map((r) => ({ ...r, selected: true })))}
                       className="text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold">
-                      Chọn tất cả
+                      Select all
                     </button>
                   </div>
                   <div className="max-h-[45vh] overflow-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-slate-900">
                         <tr className="border-b border-slate-700">
-                          {['', 'Sản phẩm', 'Qty', 'Price', 'Amount (ex GST)'].map((h) => (
+                          {['', 'Product', 'Qty', 'Price', 'Amount (ex GST)'].map((h) => (
                             <th key={h} className="px-3 py-2 text-left font-semibold text-slate-400">{h}</th>
                           ))}
                         </tr>
@@ -1375,13 +1373,13 @@ export default function DashboardPage() {
                   <button
                     onClick={() => setCreditOpen(false)}
                     className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold">
-                    Huỷ
+                    Cancel
                   </button>
                   <button
                     disabled={creditSaving}
                     onClick={submitCreditNote}
                     className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-60">
-                    {creditSaving ? 'Đang tạo...' : 'Tạo Credit Note'}
+                    {creditSaving ? 'Creating...' : 'Create credit note'}
                   </button>
                 </div>
               </div>
@@ -1394,7 +1392,7 @@ export default function DashboardPage() {
           <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
-                <h2 className="font-bold text-white text-lg">✍️ Thêm hóa đơn thủ công</h2>
+                <h2 className="font-bold text-white text-lg">✍️ Manual invoice</h2>
                 <button onClick={() => setManualOpen(false)} className="text-slate-400 hover:text-white transition-colors">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1405,7 +1403,7 @@ export default function DashboardPage() {
               <div className="p-6 space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <label className="text-sm">
-                    <div className="text-slate-400 mb-1">Nhà cung cấp *</div>
+                    <div className="text-slate-400 mb-1">Vendor *</div>
                     <input
                       list="vendor-options"
                       value={manualForm.vendor_name}
@@ -1424,7 +1422,7 @@ export default function DashboardPage() {
                     />
                   </label>
                   <label className="text-sm">
-                    <div className="text-slate-400 mb-1">Số hóa đơn</div>
+                    <div className="text-slate-400 mb-1">Invoice number</div>
                     <input
                       value={manualForm.invoice_number}
                       onChange={(e) => setManualForm((p) => ({ ...p, invoice_number: e.target.value }))}
@@ -1433,7 +1431,7 @@ export default function DashboardPage() {
                     />
                   </label>
                   <label className="text-sm">
-                    <div className="text-slate-400 mb-1">Ngày *</div>
+                    <div className="text-slate-400 mb-1">Date *</div>
                     <input
                       type="date"
                       value={manualForm.invoice_date}
@@ -1442,7 +1440,7 @@ export default function DashboardPage() {
                     />
                   </label>
                   <label className="text-sm sm:col-span-2">
-                    <div className="text-slate-400 mb-1">Danh mục</div>
+                    <div className="text-slate-400 mb-1">Category</div>
                     <input
                       value={manualForm.category}
                       onChange={(e) => setManualForm((p) => ({ ...p, category: e.target.value }))}
@@ -1469,11 +1467,11 @@ export default function DashboardPage() {
 
                 <div className="bg-slate-800 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <div className="text-sm font-semibold text-slate-200">Mặt hàng (tuỳ chọn)</div>
+                    <div className="text-sm font-semibold text-slate-200">Line items (optional)</div>
                     <button
                       onClick={() => setManualItems((p) => [{ product_code: '', description: '', quantity: '', unit: '', price: '', amount_excl_gst: '0.00' }, ...p])}
                       className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
-                      + Thêm dòng
+                      + Add row
                     </button>
                   </div>
 
@@ -1500,7 +1498,7 @@ export default function DashboardPage() {
                             });
                           }}
                           className="sm:col-span-6 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100"
-                          placeholder="Tên sản phẩm"
+                          placeholder="Product name"
                         />
                         <input
                           value={it.quantity}
@@ -1516,14 +1514,14 @@ export default function DashboardPage() {
                             }));
                           }}
                           className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Số lượng"
+                          placeholder="Quantity"
                         />
                         <input
                           list="unit-options"
                           value={it.unit}
                           onChange={(e) => setManualItems((p) => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))}
                           className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Đơn vị"
+                          placeholder="Unit"
                         />
                         <input
                           value={it.price}
@@ -1539,12 +1537,12 @@ export default function DashboardPage() {
                             }));
                           }}
                           className="sm:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                          placeholder="Đơn giá"
+                          placeholder="Unit price"
                         />
                         <div className="flex gap-2 sm:col-span-3">
                           <div
                             className="flex-1 bg-transparent border border-slate-800 rounded-lg px-2 py-2 text-xs text-slate-300 font-mono select-none"
-                            title="Tự tính (không nhập tay)"
+                            title="Auto-calculated (not editable)"
                           >
                             {it.amount_excl_gst || '0.00'}
                           </div>
@@ -1563,13 +1561,13 @@ export default function DashboardPage() {
                   <button
                     onClick={() => setManualOpen(false)}
                     className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold">
-                    Huỷ
+                    Cancel
                   </button>
                   <button
                     disabled={manualSaving}
                     onClick={submitManualInvoice}
                     className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-60">
-                    {manualSaving ? 'Đang lưu...' : 'Lưu'}
+                    {manualSaving ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               </div>
@@ -1583,9 +1581,9 @@ export default function DashboardPage() {
             <div className="bg-slate-900 rounded-2xl w-full max-w-lg border border-slate-700 shadow-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
                 <h2 className="font-bold text-white text-lg">
-                  {uploadStep === 'preview' ? '📸 Kiểm tra ảnh hóa đơn' :
-                   uploadStep === 'processing' ? '🔄 Đang xử lý...' :
-                   uploadStep === 'done' ? '✅ Hoàn tất!' : '❌ Lỗi'}
+                  {uploadStep === 'preview' ? '📸 Review invoice photo' :
+                   uploadStep === 'processing' ? '🔄 Processing...' :
+                   uploadStep === 'done' ? '✅ Done!' : '❌ Error'}
                 </h2>
                 {(uploadStep === 'preview' || uploadStep === 'error' || uploadStep === 'processing') && (
                   <button onClick={resetUpload} className="text-slate-400 hover:text-white transition-colors">
@@ -1611,20 +1609,20 @@ export default function DashboardPage() {
 
                     {/* Validation step per input-validation-specialist.md */}
                     <div className="bg-slate-800 rounded-xl p-4 text-sm text-slate-300">
-                      <p className="font-medium text-white mb-1">🔍 Ảnh đã được tối ưu.</p>
-                      <p>Bạn có nhìn rõ tên nhà cung cấp và các con số không?</p>
+                      <p className="font-medium text-white mb-1">🔍 Image optimized.</p>
+                      <p>Can you clearly read the vendor name and the numbers?</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <button
                         onClick={resetUpload}
                         className="py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold text-sm transition-all">
-                        📷 Mờ quá, chụp lại
+                        📷 Too blurry — retake
                       </button>
                       <button
                         onClick={handleConfirmAndProcess}
                         className="py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-all shadow-lg shadow-emerald-900/50 active:scale-95">
-                        ✅ Rõ, tiến hành OCR
+                        ✅ Looks good — run OCR
                       </button>
                     </div>
                   </>
@@ -1638,17 +1636,17 @@ export default function DashboardPage() {
                     <div className="text-center">
                       <p className="text-white font-semibold">{processingMsg}</p>
                       <p className="text-slate-400 text-sm mt-1">
-                        Bạn có thể đóng popup này — hệ thống vẫn xử lý nền.
+                        You can close this popup — OCR will keep running in the background.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
                         setUploadModalHidden(true);
-                        showToast('⏳ OCR đang xử lý nền. Bạn có thể tiếp tục dùng app.', 'warn');
+                        showToast('⏳ OCR is running in the background. You can keep using the app.', 'warn');
                       }}
                       className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm">
-                      Đóng
+                      Close
                     </button>
                   </div>
                 )}
@@ -1658,23 +1656,23 @@ export default function DashboardPage() {
                     <div className="w-16 h-16 rounded-full bg-emerald-600 flex items-center justify-center text-3xl">
                       ✅
                     </div>
-                    <p className="text-white font-bold text-lg">Xử lý thành công!</p>
-                    <p className="text-slate-400 text-sm">Hóa đơn đã được lưu vào database.</p>
+                    <p className="text-white font-bold text-lg">Success!</p>
+                    <p className="text-slate-400 text-sm">Invoice saved to the database.</p>
                   </div>
                 )}
 
                 {uploadStep === 'error' && (
                   <div className="space-y-4">
                     <div className="bg-red-950 border border-red-800 rounded-xl p-4 text-sm text-red-300">
-                      <p className="font-semibold text-red-400 mb-1">❌ Lỗi xử lý</p>
+                      <p className="font-semibold text-red-400 mb-1">❌ Processing error</p>
                       <p>{uploadError}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <button onClick={resetUpload} className="py-3 rounded-xl bg-slate-700 text-slate-200 font-semibold text-sm">
-                        Huỷ
+                        Cancel
                       </button>
                       <button onClick={handleConfirmAndProcess} className="py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm">
-                        Thử lại
+                        Retry
                       </button>
                     </div>
                   </div>
@@ -1700,7 +1698,7 @@ export default function DashboardPage() {
                   <div className="absolute right-4 top-4 flex items-center gap-2">
                     <button
                       type="button"
-                      aria-label="Mở menu hành động"
+                      aria-label="Open actions menu"
                       onClick={() => setReviewMenuOpen(true)}
                       className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
                       title="Menu"
@@ -1710,7 +1708,7 @@ export default function DashboardPage() {
                       </svg>
                     </button>
                     <button
-                      aria-label="Đóng"
+                      aria-label="Close"
                       onClick={() => { setReviewMenuOpen(false); setSelectedInvoice(null); setImageZoom(1); setImageRotation(0); setEditMode(false); }}
                       className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center"
                     >
@@ -1727,9 +1725,9 @@ export default function DashboardPage() {
                     <div className="absolute inset-0 bg-black/50" onClick={() => setReviewMenuOpen(false)} />
                     <div className="absolute top-24 right-4 left-4 sm:left-auto sm:w-[360px] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
                       <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800">
-                        <div className="text-sm font-semibold text-slate-100">Hành động</div>
+                        <div className="text-sm font-semibold text-slate-100">Actions</div>
                         <button
-                          aria-label="Đóng menu"
+                          aria-label="Close menu"
                           onClick={() => setReviewMenuOpen(false)}
                           className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 flex items-center justify-center"
                         >
@@ -1744,7 +1742,7 @@ export default function DashboardPage() {
                             onClick={() => { setReviewMenuOpen(false); startEdit(); }}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
                           >
-                            <span className="font-semibold">✏️ Sửa</span>
+                            <span className="font-semibold">✏️ Edit</span>
                             <span className="text-slate-400">→</span>
                           </button>
                         ) : (
@@ -1754,7 +1752,7 @@ export default function DashboardPage() {
                               onClick={() => { setReviewMenuOpen(false); saveEdit(); }}
                               className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 disabled:opacity-60"
                             >
-                              <span className="font-semibold">{editSaving ? 'Đang lưu...' : 'Lưu'}</span>
+                              <span className="font-semibold">{editSaving ? 'Saving...' : 'Save'}</span>
                               <span className="text-emerald-100">→</span>
                             </button>
                             <button
@@ -1762,7 +1760,7 @@ export default function DashboardPage() {
                               onClick={() => { setReviewMenuOpen(false); cancelEdit(); }}
                               className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 disabled:opacity-60"
                             >
-                              <span className="font-semibold">Huỷ sửa</span>
+                              <span className="font-semibold">Cancel edit</span>
                               <span className="text-slate-400">→</span>
                             </button>
                           </>
@@ -1773,7 +1771,7 @@ export default function DashboardPage() {
                             onClick={() => { setReviewMenuOpen(false); openCreditNote(); }}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
                           >
-                            <span className="font-semibold">🧾 Tạo Credit Note</span>
+                            <span className="font-semibold">🧾 Create credit note</span>
                             <span className="text-slate-400">→</span>
                           </button>
                         )}
@@ -1784,14 +1782,14 @@ export default function DashboardPage() {
                               onClick={() => { setReviewMenuOpen(false); updateStatus(selectedInvoice.id, 'approved'); }}
                               className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500"
                             >
-                              <span className="font-semibold">✅ Duyệt</span>
+                              <span className="font-semibold">✅ Approve</span>
                               <span className="text-emerald-100">→</span>
                             </button>
                             <button
                               onClick={() => { setReviewMenuOpen(false); updateStatus(selectedInvoice.id, 'rejected'); }}
                               className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white border border-red-500"
                             >
-                              <span className="font-semibold">❌ Từ chối</span>
+                              <span className="font-semibold">❌ Reject</span>
                               <span className="text-red-100">→</span>
                             </button>
                           </>
@@ -1802,7 +1800,7 @@ export default function DashboardPage() {
                             onClick={() => { setReviewMenuOpen(false); deleteInvoice(selectedInvoice.id); }}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-600 text-slate-100 border border-slate-700"
                           >
-                            <span className="font-semibold">🗑️ Xoá</span>
+                            <span className="font-semibold">🗑️ Delete</span>
                             <span className="text-slate-400">→</span>
                           </button>
                         )}
@@ -1816,7 +1814,7 @@ export default function DashboardPage() {
                   {/* LEFT: Image viewer */}
                   <div className="border-r border-slate-800 bg-slate-950">
                     <div className="p-3 border-b border-slate-800 flex items-center gap-2 bg-slate-900">
-                      <span className="text-xs text-slate-400 font-medium flex-1">Ảnh gốc hóa đơn</span>
+                      <span className="text-xs text-slate-400 font-medium flex-1">Original invoice image</span>
                       <button onClick={() => setImageZoom((z) => Math.min(z + 0.25, 3))}
                         className="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 text-xs hover:bg-slate-700 transition-colors flex items-center justify-center font-mono">+</button>
                       <span className="text-xs text-slate-500 w-10 text-center">{Math.round(imageZoom * 100)}%</span>
@@ -1849,7 +1847,7 @@ export default function DashboardPage() {
                           <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
-                          <p className="text-sm">Không có ảnh</p>
+                          <p className="text-sm">No image</p>
                         </div>
                       )}
                     </div>
@@ -1861,28 +1859,28 @@ export default function DashboardPage() {
                       {/* Invoice metadata */}
                       <section>
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
-                          Thông tin hóa đơn
+                          Invoice details
                         </h3>
                         {!editMode ? (
                           <div className="space-y-2 text-sm">
                             {[
-                              ['Nhà cung cấp', selectedInvoice.vendor_name],
+                              ['Vendor', selectedInvoice.vendor_name],
                               ['GST Number', selectedInvoice.vendor_gst_number ?? '—'],
-                              ['Số hóa đơn', selectedInvoice.invoice_number ?? '—'],
-                              ['Ngày', formatDisplayDate(selectedInvoice.invoice_date)],
-                              ['Loại', (() => {
+                              ['Invoice #', selectedInvoice.invoice_number ?? '—'],
+                              ['Date', formatDisplayDate(selectedInvoice.invoice_date)],
+                              ['Type', (() => {
                                 const isCredit = isSelectedCreditNote;
                                 if (isCredit) return 'Credit Note';
                                 if (selectedInvoice.is_tax_invoice) return 'Tax Invoice ✅';
                                 return 'Quote / Order';
                               })()],
-                              ['Danh mục', selectedInvoice.category ?? '—'],
+                              ['Category', selectedInvoice.category ?? '—'],
                             ].map(([label, value]) => (
                               <div key={label} className="flex justify-between border-b border-slate-800 pb-2">
                                 <span className="text-slate-400">{label}</span>
                                 <span
                                   className={`font-medium text-right max-w-[60%] ${
-                                    label === 'Loại' && isSelectedCreditNote ? 'text-red-300' : 'text-white'
+                                    label === 'Type' && isSelectedCreditNote ? 'text-red-300' : 'text-white'
                                   }`}
                                 >
                                   {value}
@@ -1893,7 +1891,7 @@ export default function DashboardPage() {
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                             <label>
-                              <div className="text-slate-400 mb-1">Nhà cung cấp *</div>
+                              <div className="text-slate-400 mb-1">Vendor *</div>
                               <input
                                 list="vendor-options"
                                 value={editForm.vendor_name}
@@ -1910,7 +1908,7 @@ export default function DashboardPage() {
                               />
                             </label>
                             <label>
-                              <div className="text-slate-400 mb-1">Số hóa đơn</div>
+                              <div className="text-slate-400 mb-1">Invoice number</div>
                               <input
                                 value={editForm.invoice_number}
                                 onChange={(e) => setEditForm((p) => ({ ...p, invoice_number: e.target.value }))}
@@ -1918,7 +1916,7 @@ export default function DashboardPage() {
                               />
                             </label>
                             <label>
-                              <div className="text-slate-400 mb-1">Ngày *</div>
+                              <div className="text-slate-400 mb-1">Date *</div>
                               <input
                                 type="date"
                                 value={editForm.invoice_date}
@@ -1927,7 +1925,7 @@ export default function DashboardPage() {
                               />
                             </label>
                             <label className="sm:col-span-2">
-                              <div className="text-slate-400 mb-1">Danh mục</div>
+                              <div className="text-slate-400 mb-1">Category</div>
                               <input
                                 value={editForm.category}
                                 onChange={(e) => setEditForm((p) => ({ ...p, category: e.target.value }))}
@@ -1941,7 +1939,7 @@ export default function DashboardPage() {
                       {/* Line items */}
                       <section>
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
-                          Mặt hàng ({selectedInvoice.invoice_items?.length ?? 0})
+                          Line items ({selectedInvoice.invoice_items?.length ?? 0})
                         </h3>
                         {!editMode ? (
                           <div className="space-y-2">
@@ -1965,7 +1963,7 @@ export default function DashboardPage() {
                                       <div className="flex gap-4 text-xs text-slate-400">
                                         {item.product_code && <span className="font-mono">{item.product_code}</span>}
                                         <span>SL: <span className="text-slate-200">{qty} {item.unit}</span></span>
-                                        <span>Đơn giá: <span className="text-slate-200">{formatNZD(price)}</span></span>
+                                        <span>Unit price: <span className="text-slate-200">{formatNZD(price)}</span></span>
                                       </div>
                                     </>
                                   );
@@ -1977,12 +1975,12 @@ export default function DashboardPage() {
                           <div className="bg-slate-800 rounded-xl p-4 space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="text-sm font-semibold text-slate-200">
-                                Chỉnh mặt hàng <span className="text-xs text-slate-500 font-normal">(bấm vào chữ để sửa)</span>
+                                Edit items <span className="text-xs text-slate-500 font-normal">(tap text to edit)</span>
                               </div>
                               <button
                                 onClick={() => setEditItems((p) => [{ product_code: '', description: '', quantity: '', standard: '', unit: '', price: '', amount_excl_gst: '' }, ...p])}
                                 className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold">
-                                + Thêm dòng
+                                + Add row
                               </button>
                             </div>
                             <div className="space-y-2">
@@ -2011,7 +2009,7 @@ export default function DashboardPage() {
                                           });
                                         }}
                                         className="w-full bg-transparent border-0 p-0 m-0 text-white font-medium leading-tight focus:outline-none underline decoration-dotted decoration-slate-600 underline-offset-2 hover:decoration-slate-400 focus:decoration-emerald-400"
-                                        placeholder="Tên sản phẩm"
+                                        placeholder="Product name"
                                       />
                                       {it.standard ? ` · ${it.standard}` : ''}
                                     </span>
@@ -2060,7 +2058,7 @@ export default function DashboardPage() {
                                       </span>
                                     </span>
                                     <span>
-                                      Đơn giá:{' '}
+                                      Unit price:{' '}
                                       <span className="text-slate-200 font-mono">
                                         <input
                                           value={it.price}
@@ -2084,7 +2082,7 @@ export default function DashboardPage() {
                                     <button
                                       onClick={() => setEditItems((p) => p.filter((_, i) => i !== idx))}
                                       className="ml-auto px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:bg-red-600 hover:text-white"
-                                      title="Xoá dòng"
+                                      title="Delete row"
                                     >
                                       ✕
                                     </button>
@@ -2099,7 +2097,7 @@ export default function DashboardPage() {
                       {/* Totals */}
                       <section className="bg-slate-800 rounded-xl p-4 space-y-2 text-sm">
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
-                          Tổng kết
+                          Summary
                         </h3>
                         {!editMode ? (
                           <>
@@ -2159,10 +2157,10 @@ export default function DashboardPage() {
                         <div className="grid grid-cols-2 gap-3 lg:hidden">
                           <button
                             onClick={() => updateStatus(selectedInvoice.id, 'rejected')}
-                            className="py-3 rounded-xl bg-red-600 text-white font-bold">❌ Từ chối</button>
+                            className="py-3 rounded-xl bg-red-600 text-white font-bold">❌ Reject</button>
                           <button
                             onClick={() => updateStatus(selectedInvoice.id, 'approved')}
-                            className="py-3 rounded-xl bg-emerald-600 text-white font-bold">✅ Duyệt</button>
+                            className="py-3 rounded-xl bg-emerald-600 text-white font-bold">✅ Approve</button>
                         </div>
                       )}
                     </div>
@@ -2176,10 +2174,10 @@ export default function DashboardPage() {
         {/* ── Stats cards ────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Tổng chi tiêu', value: formatNZD(totalSpend), icon: '💰', color: 'from-emerald-500 to-teal-600' },
-            { label: 'Tổng GST', value: formatNZD(totalGST), icon: '🧾', color: 'from-blue-500 to-indigo-600' },
-            { label: 'Số hóa đơn', value: totalCount.toString(), icon: '📋', color: 'from-violet-500 to-purple-600' },
-            { label: 'Chờ duyệt', value: pendingCount.toString(), icon: '⏳', color: 'from-amber-500 to-orange-600' },
+            { label: 'Total Spend', value: formatNZD(totalSpend), icon: '💰', color: 'from-emerald-500 to-teal-600' },
+            { label: 'Total GST', value: formatNZD(totalGST), icon: '🧾', color: 'from-blue-500 to-indigo-600' },
+            { label: 'Invoices', value: totalCount.toString(), icon: '📋', color: 'from-violet-500 to-purple-600' },
+            { label: 'Pending', value: pendingCount.toString(), icon: '⏳', color: 'from-amber-500 to-orange-600' },
           ].map((stat) => (
             <div key={stat.label} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition-all">
               <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-lg mb-3`}>
@@ -2208,8 +2206,8 @@ export default function DashboardPage() {
           <section className="bg-slate-900 border border-emerald-900/40 rounded-2xl p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <h2 className="text-white font-bold">Hóa đơn đang xử lý</h2>
-                <p className="text-sm text-slate-400 mt-1">Bạn có thể tiếp tục dùng app, OCR vẫn chạy nền.</p>
+                <h2 className="text-white font-bold">Invoices processing</h2>
+                <p className="text-sm text-slate-400 mt-1">You can keep using the app while OCR runs in the background.</p>
               </div>
               <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 text-xs font-semibold border border-emerald-500/20">
                 {activeOcrJobs.length} job
@@ -2227,10 +2225,10 @@ export default function DashboardPage() {
                   !!job.next_run_at &&
                   new Date(job.next_run_at).getTime() <= Date.now();
                 const subtitle = job.status === 'processing'
-                  ? 'Gemini đang đọc và bóc tách hóa đơn'
+                  ? 'Gemini is extracting invoice data'
                   : isBackoff
-                    ? `OCR quá tải, ${formatRelativeWait(job.next_run_at) || 'đang chờ thử lại'}`
-                    : 'Đang chờ worker nhận job';
+                    ? `OCR overloaded, ${formatRelativeWait(job.next_run_at) || 'waiting to retry'}`
+                    : 'Waiting for a worker to pick up the job';
 
                 return (
                   <button
@@ -2251,14 +2249,14 @@ export default function DashboardPage() {
                             ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
                             : 'bg-slate-800 text-slate-300 border border-slate-700'
                       }`}>
-                        {job.status === 'processing' ? 'Đang OCR' : isBackoff ? 'Backoff' : 'Xếp hàng'}
+                        {job.status === 'processing' ? 'Running OCR' : isBackoff ? 'Backoff' : 'Queued'}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between gap-3 mt-4 text-xs text-slate-500">
-                      <span>Lần thử {job.attempts}/{job.max_attempts}</span>
+                      <span>Attempt {job.attempts}/{job.max_attempts}</span>
                       <div className="flex items-center gap-2">
-                        <span>{job.next_run_at ? formatRelativeWait(job.next_run_at) ?? 'đang chạy' : 'đang chạy'}</span>
+                        <span>{job.next_run_at ? formatRelativeWait(job.next_run_at) ?? 'running' : 'running'}</span>
                         {canRetryNow && (
                           <button
                             type="button"
@@ -2266,7 +2264,7 @@ export default function DashboardPage() {
                             disabled={activeJobRetryId === job.id}
                             className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold disabled:opacity-60"
                           >
-                            {activeJobRetryId === job.id ? 'Đang gọi...' : 'Chạy lại'}
+                            {activeJobRetryId === job.id ? 'Calling...' : 'Retry now'}
                           </button>
                         )}
                       </div>
@@ -2300,7 +2298,7 @@ export default function DashboardPage() {
                     <img src={jobPreview.imageUrl} alt="OCR job preview" className="w-full h-[70vh] object-contain" />
                   </div>
                 ) : (
-                  <div className="text-slate-400 text-sm">Job này không có ảnh preview.</div>
+                  <div className="text-slate-400 text-sm">This job has no image preview.</div>
                 )}
               </div>
             </div>
@@ -2324,9 +2322,9 @@ export default function DashboardPage() {
               </div>
               <div className="p-6 space-y-3 max-h-[70vh] overflow-y-auto">
                 {notifLoading ? (
-                  <div className="text-slate-400 text-sm">Đang tải...</div>
+                  <div className="text-slate-400 text-sm">Loading...</div>
                 ) : ocrNotifications.length === 0 ? (
-                  <div className="text-slate-400 text-sm">Chưa có thông báo.</div>
+                  <div className="text-slate-400 text-sm">No notifications yet.</div>
                 ) : (
                   ocrNotifications.map((n) => (
                     <div key={n.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
@@ -2345,11 +2343,11 @@ export default function DashboardPage() {
                             ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
                             : 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
                         }`}>
-                          {n.status === 'succeeded' ? 'Xong' : 'Lỗi'}
+                          {n.status === 'succeeded' ? 'Done' : 'Error'}
                         </span>
                       </div>
                       {n.status === 'failed' && (
-                        <div className="text-xs text-rose-200 mt-3">{n.error_message || 'OCR thất bại'}</div>
+                        <div className="text-xs text-rose-200 mt-3">{n.error_message || 'OCR failed'}</div>
                       )}
                       <div className="flex items-center justify-between gap-3 mt-4 text-xs text-slate-500">
                         <span>Job {n.id.slice(0, 8)}</span>
@@ -2365,8 +2363,8 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-2">
           {([
-            { key: 'list', label: 'Danh sách' },
-            { key: 'report', label: 'Báo cáo' },
+            { key: 'list', label: 'List' },
+            { key: 'report', label: 'Reports' },
           ] as Array<{ key: DashboardView; label: string }>).map((view) => (
             <button
               key={view.key}
@@ -2392,7 +2390,7 @@ export default function DashboardPage() {
                 </svg>
                 <input
                   type="text"
-                  placeholder="Tìm kiếm Vendor, Mã hóa đơn..."
+                  placeholder="Search vendor, invoice number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
@@ -2403,14 +2401,14 @@ export default function DashboardPage() {
                 <input
                   type="text"
                   list="vendor-options"
-                  placeholder="Lọc theo nhà cung cấp..."
+                  placeholder="Filter by vendor..."
                   value={reportVendorFilter}
                   onChange={(e) => setReportVendorFilter(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
                 />
                 <input
                   type="text"
-                  placeholder="Tìm sản phẩm hoặc mã hàng..."
+                  placeholder="Search product or code..."
                   value={reportProductSearch}
                   onChange={(e) => setReportProductSearch(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
@@ -2426,7 +2424,7 @@ export default function DashboardPage() {
                     ${filterStatus === s
                       ? 'bg-emerald-600 border-emerald-500 text-white'
                       : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
-                  {s === 'all' ? 'Tất cả' : statusConfig[s]?.label}
+                  {s === 'all' ? 'All' : statusConfig[s]?.label}
                 </button>
               ))}
             </div>
@@ -2435,10 +2433,10 @@ export default function DashboardPage() {
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <div className="flex flex-wrap gap-2">
               {([
-                { key: 'all', label: 'Mọi ngày' },
-                { key: 'day', label: 'Hôm nay' },
-                { key: 'month', label: 'Tháng này' },
-                { key: 'custom', label: 'Tuỳ chọn' },
+                { key: 'all', label: 'All time' },
+                { key: 'day', label: 'Today' },
+                { key: 'month', label: 'This month' },
+                { key: 'custom', label: 'Custom' },
               ] as Array<{ key: DatePreset; label: string }>).map((p) => (
                 <button
                   key={p.key}
@@ -2471,14 +2469,14 @@ export default function DashboardPage() {
                   onClick={applyCustomRange}
                   className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 transition-colors"
                 >
-                  Áp dụng
+                  Apply
                 </button>
               </div>
             )}
 
             {(dateFrom || dateTo) && (
               <div className="text-xs text-slate-500 sm:ml-auto">
-                Đang lọc: <span className="font-mono text-slate-300">{dateFrom || '…'}</span> →{' '}
+                Filtering: <span className="font-mono text-slate-300">{dateFrom || '…'}</span> →{' '}
                 <span className="font-mono text-slate-300">{dateTo || '…'}</span>
               </div>
             )}
@@ -2490,7 +2488,7 @@ export default function DashboardPage() {
           loading ? (
           <div className="flex items-center justify-center py-20 gap-3 text-slate-500">
             <div className="w-5 h-5 border-2 border-slate-600 border-t-emerald-500 rounded-full animate-spin" />
-            <span className="text-sm">Đang tải...</span>
+            <span className="text-sm">Loading...</span>
           </div>
         ) : invoices.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-600">
@@ -2498,8 +2496,8 @@ export default function DashboardPage() {
               📭
             </div>
             <div className="text-center">
-              <p className="font-semibold text-slate-400">Chưa có hóa đơn nào</p>
-              <p className="text-sm mt-1">Bấm &quot;Thêm hóa đơn&quot; để chụp và xử lý hóa đơn đầu tiên</p>
+              <p className="font-semibold text-slate-400">No invoices yet</p>
+              <p className="text-sm mt-1">Click &quot;Add invoice&quot; to scan your first invoice</p>
             </div>
           </div>
         ) : (
@@ -2510,7 +2508,7 @@ export default function DashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-800">
-                      {['Ngày', 'Nhà cung cấp', 'Mã hóa đơn', 'Danh mục', 'GST', 'Tổng tiền', 'Trạng thái', ''].map((h) => (
+                      {['Date', 'Vendor', 'Invoice #', 'Category', 'GST', 'Total', 'Status', ''].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
@@ -2594,23 +2592,23 @@ export default function DashboardPage() {
         ) : reportLoading ? (
           <div className="flex items-center justify-center py-20 gap-3 text-slate-500">
             <div className="w-5 h-5 border-2 border-slate-600 border-t-emerald-500 rounded-full animate-spin" />
-            <span className="text-sm">Đang tải báo cáo...</span>
+            <span className="text-sm">Loading report...</span>
           </div>
         ) : (
           <div className="space-y-6">
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <section className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-800">
-                  <h2 className="text-white font-bold">Theo nhà cung cấp</h2>
-                  <p className="text-sm text-slate-400 mt-1">Chi phí tổng hợp theo hóa đơn trong khoảng lọc hiện tại.</p>
+                  <h2 className="text-white font-bold">By vendor</h2>
+                  <p className="text-sm text-slate-400 mt-1">Totals based on invoices in the current filter range.</p>
                 </div>
                 {costReport && costReport.vendor_summary.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
-                          <th className="px-4 py-3 text-left">Nhà cung cấp</th>
-                          <th className="px-4 py-3 text-right">Số hóa đơn</th>
+                          <th className="px-4 py-3 text-left">Vendor</th>
+                          <th className="px-4 py-3 text-right">Invoices</th>
                           <th className="px-4 py-3 text-right">Ex GST</th>
                           <th className="px-4 py-3 text-right">GST</th>
                           <th className="px-4 py-3 text-right">Incl GST</th>
@@ -2630,16 +2628,16 @@ export default function DashboardPage() {
                     </table>
                   </div>
                 ) : (
-                  <div className="px-5 py-12 text-sm text-slate-500">Không có dữ liệu nhà cung cấp trong bộ lọc này.</div>
+                  <div className="px-5 py-12 text-sm text-slate-500">No vendor data for this filter.</div>
                 )}
               </section>
 
               <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-                <h2 className="text-white font-bold">Insight giá mua</h2>
-                <p className="text-sm text-slate-400 mt-1">So sánh lần mua gần nhất với lần mua ngay trước đó, theo nhà cung cấp + sản phẩm.</p>
+                <h2 className="text-white font-bold">Price insights</h2>
+                <p className="text-sm text-slate-400 mt-1">Compare the latest purchase to the previous one, per vendor + product.</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
                   <div className="space-y-3">
-                    <div className="text-sm font-semibold text-rose-300">Tăng giá</div>
+                    <div className="text-sm font-semibold text-rose-300">Price up</div>
                     {costReport && costReport.price_insights.increased.length > 0 ? costReport.price_insights.increased.map((row) => (
                       <div key={`up-${row.product_key}`} className="rounded-2xl border border-rose-900/50 bg-rose-950/20 p-4">
                         <div className="text-white font-semibold">{row.product_name}</div>
@@ -2650,11 +2648,11 @@ export default function DashboardPage() {
                         </div>
                         <div className="text-xs text-slate-500 mt-2">{formatDisplayDate(row.previous_invoice_date)} {'->'} {formatDisplayDate(row.latest_invoice_date)}</div>
                       </div>
-                    )) : <div className="text-sm text-slate-500">Không có sản phẩm tăng giá.</div>}
+                    )) : <div className="text-sm text-slate-500">No products with price increases.</div>}
                   </div>
 
                   <div className="space-y-3">
-                    <div className="text-sm font-semibold text-emerald-300">Giảm giá</div>
+                    <div className="text-sm font-semibold text-emerald-300">Price down</div>
                     {costReport && costReport.price_insights.decreased.length > 0 ? costReport.price_insights.decreased.map((row) => (
                       <div key={`down-${row.product_key}`} className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 p-4">
                         <div className="text-white font-semibold">{row.product_name}</div>
@@ -2665,7 +2663,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="text-xs text-slate-500 mt-2">{formatDisplayDate(row.previous_invoice_date)} {'->'} {formatDisplayDate(row.latest_invoice_date)}</div>
                       </div>
-                    )) : <div className="text-sm text-slate-500">Không có sản phẩm giảm giá.</div>}
+                    )) : <div className="text-sm text-slate-500">No products with price decreases.</div>}
                   </div>
                 </div>
               </section>
@@ -2673,8 +2671,8 @@ export default function DashboardPage() {
 
             <section className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-800">
-                <h2 className="text-white font-bold">Theo sản phẩm</h2>
-                <p className="text-sm text-slate-400 mt-1">Chi phí sản phẩm được tính từ item `exclude GST` và quy đổi `incl GST = ex * 1.15`.</p>
+                <h2 className="text-white font-bold">By product</h2>
+                <p className="text-sm text-slate-400 mt-1">Product cost uses `exclude GST` and converts `incl GST = ex * 1.15`.</p>
               </div>
               {costReport && costReport.product_summary.length > 0 ? (
                 <>
@@ -2682,13 +2680,13 @@ export default function DashboardPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
-                          <th className="px-4 py-3 text-left">Sản phẩm</th>
-                          <th className="px-4 py-3 text-left">Nhà cung cấp</th>
+                          <th className="px-4 py-3 text-left">Product</th>
+                          <th className="px-4 py-3 text-left">Vendor</th>
                           <th className="px-4 py-3 text-left">Unit</th>
                           <th className="px-4 py-3 text-right">Qty</th>
                           <th className="px-4 py-3 text-right">Ex GST</th>
                           <th className="px-4 py-3 text-right">Incl GST</th>
-                          <th className="px-4 py-3 text-right">Giá gần nhất</th>
+                          <th className="px-4 py-3 text-right">Latest price</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2713,7 +2711,7 @@ export default function DashboardPage() {
                         <div className="text-xs text-slate-400 mt-1">{row.vendor_name} · {row.unit ?? '—'}</div>
                         <div className="grid grid-cols-2 gap-3 text-sm mt-3">
                           <div className="text-slate-400">Qty <span className="text-slate-200 font-mono ml-2">{row.total_qty}</span></div>
-                          <div className="text-slate-400">Giá gần nhất <span className="text-slate-200 font-mono ml-2">{row.last_price_ex_gst === null ? '—' : formatNZD(row.last_price_ex_gst)}</span></div>
+                          <div className="text-slate-400">Latest price <span className="text-slate-200 font-mono ml-2">{row.last_price_ex_gst === null ? '—' : formatNZD(row.last_price_ex_gst)}</span></div>
                           <div className="text-slate-400">Ex GST <span className="text-slate-200 font-mono ml-2">{formatNZD(row.total_ex_gst)}</span></div>
                           <div className="text-slate-400">Incl GST <span className="text-emerald-300 font-mono ml-2">{formatNZD(row.total_inc_gst)}</span></div>
                         </div>
@@ -2722,7 +2720,7 @@ export default function DashboardPage() {
                   </div>
                 </>
               ) : (
-                <div className="px-5 py-12 text-sm text-slate-500">Không có dữ liệu sản phẩm trong bộ lọc này.</div>
+                <div className="px-5 py-12 text-sm text-slate-500">No product data for this filter.</div>
               )}
             </section>
           </div>

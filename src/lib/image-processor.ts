@@ -33,13 +33,13 @@ export function preValidate(buffer: Buffer, mimeType: string): { valid: boolean;
   const sizeKB = buffer.length / 1024;
 
   if (!['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic'].includes(mimeType)) {
-    return { valid: false, warning: `Định dạng không hỗ trợ: ${mimeType}. Vui lòng dùng JPG, PNG hoặc WEBP.` };
+    return { valid: false, warning: `Unsupported format: ${mimeType}. Please use JPG, PNG, WEBP, or HEIC.` };
   }
 
   if (sizeKB < TARGET_MIN_KB) {
     return {
       valid: true, // Allow but warn
-      warning: `Ảnh rất nhỏ (${sizeKB.toFixed(0)}KB) — có thể thiếu chi tiết. Bạn có muốn chụp lại không?`,
+      warning: `This image is very small (${sizeKB.toFixed(0)}KB) and may be missing details. Consider retaking it.`,
     };
   }
 
