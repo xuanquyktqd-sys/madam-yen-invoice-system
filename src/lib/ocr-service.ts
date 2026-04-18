@@ -3,7 +3,7 @@
  * Skill: ORC vision/Skill.md + ocr-system-prompt.md
  *
  * Rules:
- *  - Default provider: DeepInfra (OpenAI-compatible) using PaddleOCR-VL-0.9B
+ *  - Default provider: DeepInfra (OpenAI-compatible) using Gemini 2.5 Flash
  *  - Optional fallback: Google Gemini (OpenAI-compatible endpoint)
  *  - Output: Strict JSON matching invoice-sample.json schema
  *  - Financial: GST = 15% NZ; always validate subtotal + gst = total
@@ -137,7 +137,7 @@ const PRIMARY: ProviderConfig = {
   baseURL: 'https://api.deepinfra.com/v1/openai',
   apiKey: process.env.DEEPINFRA_API_KEY ?? process.env.OPENAI_API_KEY,
   // DeepInfra model ids vary by account/region; override with OCR_MODEL_PRIMARY when needed.
-  model: process.env.OCR_MODEL_PRIMARY ?? 'PaddlePaddle/PaddleOCR-VL-0.9B',
+  model: process.env.OCR_MODEL_PRIMARY ?? 'google/gemini-2.5-flash',
 };
 
 const FALLBACK: ProviderConfig = {
@@ -234,7 +234,7 @@ export type OcrRunMeta = {
 /**
  * Main OCR function with automatic failover:
  *  - Uses OpenAI SDK with an OpenAI-compatible baseURL.
- *  - Primary: DeepInfra (PaddleOCR-VL-0.9B).
+ *  - Primary: DeepInfra (Gemini 2.5 Flash).
  *  - Fallback: Gemini 2.5 Flash (OpenAI-compatible endpoint)
  */
 export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: InvoiceData; meta: OcrRunMeta }> {
@@ -331,7 +331,7 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
   const configuredModel = (process.env.OCR_MODEL_PRIMARY ?? '').trim();
   const primaryModelCandidates = configuredModel
     ? [configuredModel]
-    : ['PaddlePaddle/PaddleOCR-VL-0.9B'];
+    : ['google/gemini-2.5-flash'];
 
   for (let providerIndex = 0; providerIndex < providers.length; providerIndex++) {
     const { cfg: baseCfg, attempts } = providers[providerIndex]!;
