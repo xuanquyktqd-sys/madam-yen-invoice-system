@@ -432,7 +432,7 @@ export default function DashboardPage() {
       const fd = new FormData();
       fd.append('image', previewFile);
 
-      setProcessingMsg('Đang chạy OCR: DeepInfra (DeepSeek OCR) — nếu lỗi sẽ chuyển Gemini 2.5 Flash...');
+      setProcessingMsg('Đang chạy OCR: DeepInfra (PaddleOCR-VL-0.9B) — nếu lỗi sẽ chuyển Gemini 2.5 Flash...');
       const res = await fetch('/api/process', { method: 'POST', body: fd });
       const { json, text } = await safeReadJson(res);
       const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
