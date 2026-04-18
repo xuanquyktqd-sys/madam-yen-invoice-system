@@ -167,6 +167,66 @@ async function loadImageBase64(bucket: string, path: string): Promise<string> {
   return btoa(binary);
 }
 
+function getTextContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => {
+        if (!p) return '';
+        if (typeof p === 'string') return p;
+        const text = (p as { text?: unknown }).text;
+        return typeof text === 'string' ? text : '';
+      })
+      .join('')
+      .trim();
+  }
+  return '';
+}
+
+async function runDeepInfraGeminiOcr(job: ClaimedJob): Promise<{ data: InvoiceData; provider: string; model: string }> {
+  const apiKey = envAny('DEEPINFRA_API_KEY', 'OPENAI_API_KEY');
+  const model = Deno.env.get('DEEPINFRA_MODEL') ?? 'google/gemini-2.5-flash';
+  const imageBase64 = await loadImageBase64(job.storage_bucket, job.storage_path);
+  const dataUrl = `data:image/jpeg;base64,${imageBase64}`;
+
+  const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: OCR_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Extract invoice data from this image.' },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`DeepInfra OCR failed: ${response.status} ${text}`);
+  }
+
+  const json = await response.json();
+  const raw = getTextContent(json?.choices?.[0]?.message?.content).trim();
+  if (!raw) throw new Error('DeepInfra OCR returned empty content');
+
+  return {
+    data: parseInvoiceJson(raw),
+    provider: 'deepinfra',
+    model,
+  };
+}
+
 async function runGeminiOcr(job: ClaimedJob): Promise<{ data: InvoiceData; provider: string; model: string }> {
   const apiKey = env('GEMINI_API_KEY');
   const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash';
@@ -217,6 +277,15 @@ async function runGeminiOcr(job: ClaimedJob): Promise<{ data: InvoiceData; provi
     provider: 'gemini',
     model,
   };
+}
+
+async function runOcrWithFallback(job: ClaimedJob): Promise<{ data: InvoiceData; provider: string; model: string }> {
+  try {
+    return await runDeepInfraGeminiOcr(job);
+  } catch (err) {
+    console.warn(`[OCR Worker] Primary DeepInfra failed; falling back to Gemini official. ${String((err as Error)?.message ?? err)}`);
+    return await runGeminiOcr(job);
+  }
 }
 
 async function markJobSucceeded(jobId: string, input: {
@@ -305,7 +374,7 @@ async function processJob(jobId: string) {
   console.log(`[OCR Worker] Processing job ${job.id} attempt ${job.attempts}/${job.max_attempts}`);
 
   try {
-    const ocr = await runGeminiOcr(job);
+    const ocr = await runOcrWithFallback(job);
     const saved = await saveOcrResult(job, ocr);
     await markJobSucceeded(job.id, {
       invoiceId: saved.invoiceId,
