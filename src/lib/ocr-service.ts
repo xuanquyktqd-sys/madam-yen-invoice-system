@@ -312,6 +312,9 @@ export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: I
         return await withTimeout(callOpenAICompatible(imageBuffer, cfg), TIMEOUT_MS);
       } catch (err) {
         lastErr = err;
+        if ((err as Error)?.message === 'OCR_TIMEOUT') {
+          throw new Error(`OCR_TIMEOUT_${TIMEOUT_MS}`);
+        }
         if (isModelNotFound(err)) break;
         if (!isRetryableError(err) || attempt === attempts) break;
         const base = 600 * Math.pow(2, attempt - 1);

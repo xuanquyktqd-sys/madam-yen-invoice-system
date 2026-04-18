@@ -90,8 +90,12 @@ export async function POST(request: NextRequest) {
         }, { status: 502 });
       }
       if (msg.includes('OCR_TIMEOUT')) {
+        const timeoutMatch = msg.match(/OCR_TIMEOUT_(\d+)/);
+        const timeoutSeconds = timeoutMatch?.[1] ? Math.round(Number(timeoutMatch[1]) / 1000) : null;
         return NextResponse.json({
-          error: 'OCR xử lý quá lâu và đã bị dừng để tránh timeout của Vercel. Vui lòng thử lại với ảnh rõ hơn hoặc nhỏ hơn.',
+          error: timeoutSeconds
+            ? `OCR đã bị dừng sau khoảng ${timeoutSeconds} giây để tránh timeout của Vercel. Vui lòng thử lại với ảnh rõ hơn hoặc nhỏ hơn.`
+            : 'OCR xử lý quá lâu và đã bị dừng để tránh timeout của Vercel. Vui lòng thử lại với ảnh rõ hơn hoặc nhỏ hơn.',
           step: 'ocr',
           retryable: true,
         }, { status: 504 });
