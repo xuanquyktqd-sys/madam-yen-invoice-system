@@ -13,7 +13,7 @@ import { uploadInvoiceImage } from '@/lib/storage-service';
 import { saveInvoice } from '@/lib/db-service';
 
 export const runtime = 'nodejs'; // Required for sharp + buffer operations
-export const maxDuration = 60;   // 60s timeout for OCR calls
+export const maxDuration = 60;   // Keep within Vercel function limits; OCR has its own tighter budget.
 
 export async function POST(request: NextRequest) {
   console.log('[API] POST /api/process — new request');
@@ -88,6 +88,13 @@ export async function POST(request: NextRequest) {
           step: 'ocr',
           retryable: true,
         }, { status: 502 });
+      }
+      if (msg.includes('OCR_TIMEOUT')) {
+        return NextResponse.json({
+          error: 'OCR xử lý quá lâu và đã bị dừng để tránh timeout của Vercel. Vui lòng thử lại với ảnh rõ hơn hoặc nhỏ hơn.',
+          step: 'ocr',
+          retryable: true,
+        }, { status: 504 });
       }
       return NextResponse.json({
         error: `OCR thất bại: ${msg}`,

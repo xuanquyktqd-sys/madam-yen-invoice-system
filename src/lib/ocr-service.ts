@@ -238,9 +238,9 @@ export type OcrRunMeta = {
  *  - Fallback: Gemini 2.5 Flash (OpenAI-compatible endpoint)
  */
 export async function extractInvoiceData(imageBuffer: Buffer): Promise<{ data: InvoiceData; meta: OcrRunMeta }> {
-  const TIMEOUT_MS = 50_000;
-  const PRIMARY_ATTEMPTS = Math.max(1, Math.min(2, Number(process.env.OCR_PRIMARY_ATTEMPTS ?? 2)));
-  const FALLBACK_ATTEMPTS = Math.max(1, Math.min(3, Number(process.env.OCR_FALLBACK_ATTEMPTS ?? 3)));
+  const TIMEOUT_MS = Math.max(8_000, Math.min(25_000, Number(process.env.OCR_REQUEST_TIMEOUT_MS ?? 18_000)));
+  const PRIMARY_ATTEMPTS = Math.max(1, Math.min(2, Number(process.env.OCR_PRIMARY_ATTEMPTS ?? 1)));
+  const FALLBACK_ATTEMPTS = Math.max(1, Math.min(2, Number(process.env.OCR_FALLBACK_ATTEMPTS ?? 1)));
 
   const force = (process.env.OCR_FORCE_PROVIDER ?? '').toLowerCase();
   const providers: Array<{ cfg: ProviderConfig; attempts: number }> =
