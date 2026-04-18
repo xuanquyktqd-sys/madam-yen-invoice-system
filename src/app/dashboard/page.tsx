@@ -451,17 +451,17 @@ export default function DashboardPage() {
         throw new Error(e);
       }
 
-      setProcessingMsg('Lưu vào database...');
+      const ocrLabel =
+        obj && typeof obj.ocr === 'object' && obj.ocr
+          ? `${String((obj.ocr as Record<string, unknown>).provider ?? '')}/${String((obj.ocr as Record<string, unknown>).model ?? '')}`
+          : '';
       const vendorName =
         obj && typeof obj.data === 'object' && obj.data
           && typeof (obj.data as Record<string, unknown>).invoice_metadata === 'object'
           && (obj.data as Record<string, unknown>).invoice_metadata
           ? String(((obj.data as Record<string, unknown>).invoice_metadata as Record<string, unknown>).vendor_name ?? '')
           : '';
-      const ocrLabel =
-        obj && typeof obj.ocr === 'object' && obj.ocr
-          ? `${String((obj.ocr as Record<string, unknown>).provider ?? '')}/${String((obj.ocr as Record<string, unknown>).model ?? '')}`
-          : '';
+      setProcessingMsg(`Đã quét xong bằng ${ocrLabel || 'OCR model'} — đang lưu vào database...`);
       showToast(`✅ Xử lý thành công: ${vendorName}${ocrLabel ? ` (${ocrLabel})` : ''}`.trim(), 'success');
       setUploadStep('done');
       await fetchInvoices();
