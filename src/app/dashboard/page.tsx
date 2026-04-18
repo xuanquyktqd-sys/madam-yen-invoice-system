@@ -182,6 +182,7 @@ export default function DashboardPage() {
   const [processingMsg, setProcessingMsg] = useState('');
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' | 'warn' } | null>(null);
   const [activeOcrJobId, setActiveOcrJobId] = useState<string | null>(null);
+  const [uploadModalHidden, setUploadModalHidden] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollTimerRef = useRef<number | null>(null);
   const pollStartedAtRef = useRef<number>(0);
@@ -427,6 +428,7 @@ export default function DashboardPage() {
   const handleFileSelect = async (file: File) => {
     setUploadError(null);
     setUploadStep('preview');
+    setUploadModalHidden(false);
 
     // Show raw preview first (before optimize)
     const rawUrl = URL.createObjectURL(file);
@@ -456,6 +458,7 @@ export default function DashboardPage() {
     if (!previewFile) return;
     setUploadStep('processing');
     setUploadError(null);
+    setUploadModalHidden(false);
 
     const retryExistingJob = async (jobId: string) => {
       setProcessingMsg('Đang yêu cầu hệ thống thử lại OCR...');
@@ -584,6 +587,7 @@ export default function DashboardPage() {
     } catch (err) {
       setUploadError((err as Error).message);
       setUploadStep('error');
+      setUploadModalHidden(false);
     }
   };
 
@@ -595,6 +599,7 @@ export default function DashboardPage() {
     setPreviewSizeKB(null);
     setUploadError(null);
     setActiveOcrJobId(null);
+    setUploadModalHidden(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -1466,7 +1471,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Upload Modal ───────────────────────────────────────────────────── */}
-        {uploadStep !== 'idle' && (
+        {uploadStep !== 'idle' && !uploadModalHidden && (
           <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 rounded-2xl w-full max-w-lg border border-slate-700 shadow-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
@@ -1475,7 +1480,7 @@ export default function DashboardPage() {
                    uploadStep === 'processing' ? '🔄 Đang xử lý...' :
                    uploadStep === 'done' ? '✅ Hoàn tất!' : '❌ Lỗi'}
                 </h2>
-                {(uploadStep === 'preview' || uploadStep === 'error') && (
+                {(uploadStep === 'preview' || uploadStep === 'error' || uploadStep === 'processing') && (
                   <button onClick={resetUpload} className="text-slate-400 hover:text-white transition-colors">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1525,8 +1530,19 @@ export default function DashboardPage() {
                     </div>
                     <div className="text-center">
                       <p className="text-white font-semibold">{processingMsg}</p>
-                      <p className="text-slate-400 text-sm mt-1">Đừng đóng trang này...</p>
+                      <p className="text-slate-400 text-sm mt-1">
+                        Bạn có thể đóng popup này — hệ thống vẫn xử lý nền.
+                      </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadModalHidden(true);
+                        showToast('⏳ OCR đang xử lý nền. Bạn có thể tiếp tục dùng app.', 'warn');
+                      }}
+                      className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm">
+                      Đóng
+                    </button>
                   </div>
                 )}
 
