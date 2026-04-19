@@ -14,11 +14,9 @@ type InvoiceData = {
     raw_row_text: string;
     product_code: string | null;
     description: string;
-    standard?: string | null;
     quantity: number | null;
     unit: string | null;
     price: number | null;
-    amount_excl_gst?: number;
   }>;
 };
 
@@ -33,7 +31,7 @@ type ClaimedJob = {
 };
 
 const OCR_SYSTEM_PROMPT = `You are an OCR extraction system for New Zealand restaurant invoices.
-Your goal is to extract ONLY these fields with maximum accuracy (no extra fields):
+Your goal is to extract ONLY these fields with maximum accuracy (no extra fields).
 
 ### OUTPUT JSON (strict):
 Return ONLY a raw JSON object matching this exact schema:
@@ -56,19 +54,33 @@ Return ONLY a raw JSON object matching this exact schema:
   ]
 }
 
-### LINE ITEMS RULES (IMPORTANT):
+### LINE ITEMS RULES (CRITICAL):
 - The line_items section is a TABLE.
-- Extract rows TOP to BOTTOM.
-- Preserve row order exactly as printed.
-- Do NOT skip rows.
-- Do NOT merge multiple rows into one.
-- Do NOT split one row into multiple rows.
-- Keep units and decimals EXACTLY as shown (do not round, do not normalize).
-- Return null ONLY for unclear CELLS, not for the whole row.
-- Always return a row object for each table row, even if some cells are null.
+- Extract table rows TOP to BOTTOM.
+- Preserve row order EXACTLY as printed (no re-ordering).
+- Do NOT skip any visible row.
+- Do NOT merge adjacent rows into one object.
+- Do NOT split one row into multiple objects.
+- Each visible row must produce EXACTLY ONE line_items object.
+- Copy each row exactly as shown; do NOT repair, normalize, infer, or recalculate anything.
+- Include raw_row_text for EVERY row (copy the row text as-is).
+- If product_code is visible, copy it exactly into product_code.
+- Do NOT move product_code into description when they are clearly separate cells.
+- Keep units exactly as written (case, spacing, punctuation).
+- Keep decimal quantities exactly as written (no rounding).
+- Do NOT infer missing cells from neighboring rows.
+- If part of a row is unclear, KEEP the row and set ONLY unclear cells to null (not the whole row).
 
 ### OUTPUT RULES:
 - Return STRICT JSON ONLY. No markdown, no code fences, no explanation.`;
+
+const OCR_USER_PROMPT =
+  'Extract ONLY: vendor_name, vendor_gst_number, invoice_number, date, and the line items TABLE. ' +
+  'For the table: extract rows top-to-bottom, preserve exact row order, and produce exactly one object per visible row. ' +
+  'Do not skip/merge/split rows. Copy raw_row_text for every row exactly as shown. ' +
+  'If product_code is visible, copy it exactly into product_code (do not move it into description). ' +
+  'Keep units and decimal quantities exactly as written. Do not infer/normalize/recalculate. ' +
+  'If a cell is unclear, set only that cell to null. Return strict JSON only.';
 
 function env(name: string): string {
   const value = Deno.env.get(name);
@@ -171,7 +183,7 @@ async function runDeepInfraGeminiOcr(job: ClaimedJob): Promise<{ data: InvoiceDa
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Extract invoice metadata and the line items table (top-to-bottom). Return strict JSON only.' },
+            { type: 'text', text: OCR_USER_PROMPT },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
         },
@@ -213,7 +225,7 @@ async function runGeminiOcr(job: ClaimedJob): Promise<{ data: InvoiceData; provi
           {
             role: 'user',
             parts: [
-              { text: 'Extract invoice metadata and the line items table (top-to-bottom). Return strict JSON only.' },
+              { text: OCR_USER_PROMPT },
               {
                 inline_data: {
                   mime_type: 'image/jpeg',
