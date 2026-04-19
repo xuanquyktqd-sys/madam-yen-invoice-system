@@ -276,13 +276,23 @@ export async function saveInvoice(
   imageUrl: string,
   ocrJobId?: string
 ): Promise<SaveResult> {
-  const { invoice_metadata, billing_info, line_items, totals } = data;
+  const { invoice_metadata, line_items } = data;
   const client = await pool.connect();
 
   try {
     const vendorName  = invoice_metadata.vendor_name;
     const invoiceDate = invoice_metadata.date;
-    const totalAmount = totals.total_amount;
+    const freight = 0;
+    const computedSubTotal = Math.round(
+      (line_items ?? []).reduce((sum, it) => {
+        const q = toNumberOrNull(it.quantity);
+        const p = toNumberOrNull(it.price);
+        if (q === null || p === null) return sum;
+        return sum + q * p;
+      }, 0) * 100
+    ) / 100;
+    const computedGst = Math.round((computedSubTotal + freight) * 0.15 * 100) / 100;
+    const totalAmount = Math.round((computedSubTotal + freight + computedGst) * 100) / 100;
 
     await client.query('BEGIN');
 
@@ -326,19 +336,19 @@ export async function saveInvoice(
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING id`,
       [
-        invoice_metadata.type ?? 'Tax Invoice',
+        'Tax Invoice',
         vendorName,
-        invoice_metadata.vendor_address,
+        null,
         invoice_metadata.vendor_gst_number,
         invoice_metadata.invoice_number,
         invoiceDate,
-        invoice_metadata.currency ?? 'NZD',
-        invoice_metadata.is_tax_invoice ?? true,
-        billing_info.billing_name,
-        billing_info.billing_address,
-        totals.sub_total,
-        totals.freight ?? 0,
-        totals.gst_amount,
+        'NZD',
+        true,
+        null,
+        null,
+        computedSubTotal,
+        freight,
+        computedGst,
         totalAmount,
         imageUrl,
         'pending_review',
@@ -354,15 +364,18 @@ export async function saveInvoice(
     if (line_items?.length) {
       for (let i = 0; i < line_items.length; i++) {
         const item = line_items[i];
+        const q = toNumberOrNull(item.quantity);
+        const p = toNumberOrNull(item.price);
+        const amount = q === null || p === null ? null : q * p;
         await insertInvoiceItemRow(client, {
           invoice_id: invoiceId,
           product_code: item.product_code ?? null,
           description: item.description,
-          standard: item.standard ?? null,
-          quantity: toNumberOrNull(item.quantity),
+          standard: (item as { standard?: string | null }).standard ?? null,
+          quantity: q,
           unit: item.unit ?? null,
-          price: toNumberOrNull(item.price),
-          amount_excl_gst: toNumberOrNull(item.amount_excl_gst),
+          price: p,
+          amount_excl_gst: toNumberOrNull((item as { amount_excl_gst?: unknown }).amount_excl_gst) ?? (amount === null ? null : amount),
           sort_order: i + 1,
         });
       }

@@ -13,91 +13,64 @@ import OpenAI from 'openai';
 
 // ─── Types matching invoice-sample.json ───────────────────────────────────────
 export type LineItem = {
+  raw_row_text: string;
   product_code: string | null;
   description: string;
-  standard: string | null;
-  quantity: number;
+  standard?: string | null;
+  quantity: number | null;
   unit: string | null;
-  price: number;
-  amount_excl_gst: number;
+  price: number | null;
+  amount_excl_gst?: number;
 };
 
 export type InvoiceData = {
   invoice_metadata: {
-    type: string;
     vendor_name: string;
-    vendor_address: string | null;
     vendor_gst_number: string | null;
     invoice_number: string | null;
     date: string;          // YYYY-MM-DD
-    currency: string;
-    is_tax_invoice: boolean;
-    status: string;
-  };
-  billing_info: {
-    billing_name: string | null;
-    billing_address: string | null;
   };
   line_items: LineItem[];
-  totals: {
-    sub_total: number;
-    freight: number;
-    gst_amount: number;
-    total_amount: number;
-    calculation_error?: boolean;
-  };
 };
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
-const OCR_SYSTEM_PROMPT = `Act as an expert OCR system specializing in New Zealand restaurant invoices (Tax Invoices).
-Your goal is to extract data with 100% numerical accuracy.
+const OCR_SYSTEM_PROMPT = `You are an OCR extraction system for New Zealand restaurant invoices.
+Your goal is to extract ONLY these fields with maximum accuracy (no extra fields):
 
-### OUTPUT STRUCTURE:
-Return ONLY a raw JSON object matching this exact schema (from invoice-sample.json ground truth):
+### OUTPUT JSON (strict):
+Return ONLY a raw JSON object matching this exact schema:
 {
   "invoice_metadata": {
-    "type": "Tax Invoice",
     "vendor_name": "string",
-    "vendor_address": "string or null",
     "vendor_gst_number": "string or null",
     "invoice_number": "string or null",
-    "date": "YYYY-MM-DD",
-    "currency": "NZD",
-    "is_tax_invoice": true,
-    "status": "pending_review"
-  },
-  "billing_info": {
-    "billing_name": "string or null",
-    "billing_address": "string or null"
+    "date": "YYYY-MM-DD"
   },
   "line_items": [
     {
+      "raw_row_text": "string",
       "product_code": "string or null",
       "description": "string",
-      "standard": "string or null",
-      "quantity": number,
+      "quantity": number or null,
       "unit": "string or null",
-      "price": number,
-      "amount_excl_gst": number
+      "price": number or null
     }
-  ],
-  "totals": {
-    "sub_total": number,
-    "freight": number,
-    "gst_amount": number,
-    "total_amount": number
-  }
+  ]
 }
 
-### CRITICAL RULES:
-1. **GST Validation (NZ Standard 15%):**
-   - If GST not explicitly stated: gst_amount = total_amount - (total_amount / 1.15)
-   - Always verify: sub_total + gst_amount = total_amount. If difference > 0.01, add "calculation_error": true to totals.
-2. **Quantity Precision:** Keep ALL decimals (e.g. 4.555 for meat/produce). NEVER round.
-3. **Data Integrity:**
-   - Blurry or missing field: return null for that field.
-   - If document is a Quote or Order Confirmation (NOT a Tax Invoice): set is_tax_invoice: false.
-4. **Formatting:** Return STRICT JSON ONLY. No preamble. No markdown. No explanation.`;
+### LINE ITEMS RULES (IMPORTANT):
+- The line_items section is a TABLE.
+- Extract rows TOP to BOTTOM.
+- Preserve row order exactly as printed.
+- Do NOT skip rows.
+- Do NOT merge multiple rows into one.
+- Do NOT split one row into multiple rows.
+- Keep units and decimals EXACTLY as shown (do not round, do not normalize).
+- Return null ONLY for unclear CELLS, not for the whole row.
+- Always return a row object for each table row, even if some cells are null.
+
+### OUTPUT RULES:
+- Return STRICT JSON ONLY. No markdown, no code fences, no explanation.`;
 
 // ─── Vendor Category Mapping ───────────────────────────────────────────────
 export function deriveCategory(vendorName: string): string {
@@ -110,17 +83,7 @@ export function deriveCategory(vendorName: string): string {
 }
 
 // ─── Financial Validation ──────────────────────────────────────────────────
-export function validateFinancials(totals: InvoiceData['totals']): InvoiceData['totals'] {
-  const { sub_total, freight, gst_amount, total_amount } = totals;
-  const expected = Math.round((sub_total + (freight ?? 0) + gst_amount) * 100) / 100;
-  const diff = Math.abs(expected - total_amount);
-
-  if (diff > 0.01) {
-    console.warn(`[CALCULATION_ERROR] Expected ${expected}, got ${total_amount} (diff: ${diff.toFixed(4)})`);
-    return { ...totals, calculation_error: true };
-  }
-  return totals;
-}
+// Totals are intentionally NOT extracted by OCR.
 
 // ─── OCR Engine (OpenAI-compatible) ──────────────────────────────────────────
 type OcrProvider = 'deepinfra' | 'gemini';
@@ -185,7 +148,7 @@ async function callOpenAICompatible(imageBuffer: Buffer, cfg: ProviderConfig): P
       {
         role: 'user',
         content: [
-          { type: 'text', text: 'Extract invoice data from this image.' },
+          { type: 'text', text: 'Extract invoice metadata and the line items table (top-to-bottom). Return strict JSON only.' },
           { type: 'image_url', image_url: { url: dataUrl } },
         ],
       },
@@ -221,7 +184,6 @@ async function callOpenAICompatible(imageBuffer: Buffer, cfg: ProviderConfig): P
     throw new Error('OCR_BAD_JSON');
   }
 
-  parsed.totals = validateFinancials(parsed.totals);
   return parsed;
 }
 

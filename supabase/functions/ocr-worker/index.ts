@@ -5,36 +5,21 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 type InvoiceData = {
   invoice_metadata: {
-    type: string;
     vendor_name: string;
-    vendor_address: string | null;
     vendor_gst_number: string | null;
     invoice_number: string | null;
     date: string;
-    currency: string;
-    is_tax_invoice: boolean;
-    status: string;
-  };
-  billing_info: {
-    billing_name: string | null;
-    billing_address: string | null;
   };
   line_items: Array<{
+    raw_row_text: string;
     product_code: string | null;
     description: string;
-    standard: string | null;
-    quantity: number;
+    standard?: string | null;
+    quantity: number | null;
     unit: string | null;
-    price: number;
-    amount_excl_gst: number;
+    price: number | null;
+    amount_excl_gst?: number;
   }>;
-  totals: {
-    sub_total: number;
-    freight: number;
-    gst_amount: number;
-    total_amount: number;
-    calculation_error?: boolean;
-  };
 };
 
 type ClaimedJob = {
@@ -47,51 +32,43 @@ type ClaimedJob = {
   max_attempts: number;
 };
 
-const OCR_SYSTEM_PROMPT = `Act as an expert OCR system specializing in New Zealand restaurant invoices (Tax Invoices).
-Your goal is to extract data with 100% numerical accuracy.
+const OCR_SYSTEM_PROMPT = `You are an OCR extraction system for New Zealand restaurant invoices.
+Your goal is to extract ONLY these fields with maximum accuracy (no extra fields):
 
-### OUTPUT STRUCTURE:
+### OUTPUT JSON (strict):
 Return ONLY a raw JSON object matching this exact schema:
 {
   "invoice_metadata": {
-    "type": "Tax Invoice",
     "vendor_name": "string",
-    "vendor_address": "string or null",
     "vendor_gst_number": "string or null",
     "invoice_number": "string or null",
-    "date": "YYYY-MM-DD",
-    "currency": "NZD",
-    "is_tax_invoice": true,
-    "status": "pending_review"
-  },
-  "billing_info": {
-    "billing_name": "string or null",
-    "billing_address": "string or null"
+    "date": "YYYY-MM-DD"
   },
   "line_items": [
     {
+      "raw_row_text": "string",
       "product_code": "string or null",
       "description": "string",
-      "standard": "string or null",
-      "quantity": number,
+      "quantity": number or null,
       "unit": "string or null",
-      "price": number,
-      "amount_excl_gst": number
+      "price": number or null
     }
-  ],
-  "totals": {
-    "sub_total": number,
-    "freight": number,
-    "gst_amount": number,
-    "total_amount": number
-  }
+  ]
 }
 
-### CRITICAL RULES:
-1. GST is 15% in New Zealand.
-2. Keep quantity decimals exactly.
-3. If a field is unreadable, return null.
-4. Return strict JSON only.`;
+### LINE ITEMS RULES (IMPORTANT):
+- The line_items section is a TABLE.
+- Extract rows TOP to BOTTOM.
+- Preserve row order exactly as printed.
+- Do NOT skip rows.
+- Do NOT merge multiple rows into one.
+- Do NOT split one row into multiple rows.
+- Keep units and decimals EXACTLY as shown (do not round, do not normalize).
+- Return null ONLY for unclear CELLS, not for the whole row.
+- Always return a row object for each table row, even if some cells are null.
+
+### OUTPUT RULES:
+- Return STRICT JSON ONLY. No markdown, no code fences, no explanation.`;
 
 function env(name: string): string {
   const value = Deno.env.get(name);
@@ -111,21 +88,12 @@ const supabase = createClient(envAny('SUPABASE_URL', 'PROJECT_URL'), envAny('SUP
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-function validateFinancials(totals: InvoiceData['totals']): InvoiceData['totals'] {
-  const expected = Math.round((totals.sub_total + (totals.freight ?? 0) + totals.gst_amount) * 100) / 100;
-  if (Math.abs(expected - totals.total_amount) > 0.01) {
-    return { ...totals, calculation_error: true };
-  }
-  return totals;
-}
-
 function parseInvoiceJson(rawText: string): InvoiceData {
   const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
   const first = cleaned.indexOf('{');
   const last = cleaned.lastIndexOf('}');
   const candidate = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
   const parsed = JSON.parse(candidate) as InvoiceData;
-  parsed.totals = validateFinancials(parsed.totals);
   return parsed;
 }
 
@@ -203,7 +171,7 @@ async function runDeepInfraGeminiOcr(job: ClaimedJob): Promise<{ data: InvoiceDa
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Extract invoice data from this image.' },
+            { type: 'text', text: 'Extract invoice metadata and the line items table (top-to-bottom). Return strict JSON only.' },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
         },
@@ -245,7 +213,7 @@ async function runGeminiOcr(job: ClaimedJob): Promise<{ data: InvoiceData; provi
           {
             role: 'user',
             parts: [
-              { text: 'Extract invoice data from this image.' },
+              { text: 'Extract invoice metadata and the line items table (top-to-bottom). Return strict JSON only.' },
               {
                 inline_data: {
                   mime_type: 'image/jpeg',
