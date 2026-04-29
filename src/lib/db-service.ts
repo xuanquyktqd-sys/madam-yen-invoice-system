@@ -38,6 +38,14 @@ function normalizeVendorName(input: string | null | undefined): string | null {
   return s ? s.replace(/\s+/g, ' ') : null;
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function round4(n: number): number {
+  return Math.round(n * 10_000) / 10_000;
+}
+
 function isMissingTableError(err: unknown): boolean {
   const e = err as { code?: string } | null;
   // 42P01 = undefined_table
@@ -363,22 +371,23 @@ export async function saveInvoice(
       if (price === null) return null;
       if (!pricesIncludeGst) return price;
       // Convert incl-GST → ex-GST using NZ 15% GST.
-      return Math.round((price / 1.15) * 100) / 100;
+      // Keep 4 decimals for storage/accuracy; UI will format to 2 decimals for readability.
+      return round4(price / 1.15);
     };
 
     const normalizedItems = (line_items ?? []).map((it) => {
       const q = toNumberOrNull(it.quantity);
       const pIncl = toNumberOrNull(it.price);
       const p = normalizePriceExGst(pIncl);
-      const amt = q !== null && p !== null ? Math.round(q * p * 100) / 100 : null;
+      const amt = q !== null && p !== null ? round2(q * p) : null;
       return { ...it, quantity: q, price: p, _amount_ex: amt };
     });
 
-    const computedSubTotal = Math.round(
-      normalizedItems.reduce((sum, it) => (it._amount_ex === null ? sum : sum + it._amount_ex), 0) * 100
-    ) / 100;
-    const computedGst = Math.round((computedSubTotal + freight) * 0.15 * 100) / 100;
-    const totalAmount = Math.round((computedSubTotal + freight + computedGst) * 100) / 100;
+    const computedSubTotal = round2(
+      normalizedItems.reduce((sum, it) => (it._amount_ex === null ? sum : sum + it._amount_ex), 0)
+    );
+    const computedGst = round2((computedSubTotal + freight) * 0.15);
+    const totalAmount = round2(computedSubTotal + freight + computedGst);
 
     if (ocrJobId) {
       const existingByJob = await client.query(
@@ -1185,10 +1194,6 @@ export type CreateCreditNoteInput = {
     price?: number | string | null; // positive number from UI (optional)
   }>;
 };
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 export async function createCreditNoteFromInvoice(input: CreateCreditNoteInput): Promise<SaveResult> {
   const client = await pool.connect();
