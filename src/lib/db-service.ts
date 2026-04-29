@@ -26,6 +26,18 @@ function toNumberOrNull(value: unknown): number | null {
   return null;
 }
 
+function normalizeGstNumber(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const digits = String(input).replace(/[^\d]/g, '').trim();
+  return digits ? digits : null;
+}
+
+function normalizeVendorName(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const s = String(input).trim().toLowerCase();
+  return s ? s.replace(/\s+/g, ' ') : null;
+}
+
 function isMissingTableError(err: unknown): boolean {
   const e = err as { code?: string } | null;
   // 42P01 = undefined_table
@@ -282,19 +294,91 @@ export async function saveInvoice(
   try {
     const vendorName  = invoice_metadata.vendor_name;
     const invoiceDate = invoice_metadata.date;
+    const vendorGstNormalized = normalizeGstNumber(invoice_metadata.vendor_gst_number);
+    const vendorNameNormalized = normalizeVendorName(vendorName);
+
+    const matchVendor = async (): Promise<{ vendorId: string | null; pricesIncludeGst: boolean }> => {
+      try {
+        if (vendorGstNormalized) {
+          const res = await client.query(
+            `SELECT id, prices_include_gst
+               FROM vendors
+              WHERE regexp_replace(COALESCE(gst_number,''), '[^0-9]', '', 'g') = $1
+              LIMIT 1`,
+            [vendorGstNormalized]
+          );
+          if (res.rows[0]?.id) {
+            return { vendorId: res.rows[0].id as string, pricesIncludeGst: !!res.rows[0].prices_include_gst };
+          }
+        }
+        if (vendorNameNormalized) {
+          const res = await client.query(
+            `SELECT id, prices_include_gst
+               FROM vendors
+              WHERE lower(trim(name)) = $1
+              LIMIT 1`,
+            [vendorNameNormalized]
+          );
+          if (res.rows[0]?.id) {
+            return { vendorId: res.rows[0].id as string, pricesIncludeGst: !!res.rows[0].prices_include_gst };
+          }
+        }
+        return { vendorId: null, pricesIncludeGst: false };
+      } catch (err) {
+        if (isMissingColumnError(err, 'prices_include_gst')) {
+          // Backward-compatible when DB hasn't been migrated yet.
+          if (vendorGstNormalized) {
+            const res = await client.query(
+              `SELECT id
+                 FROM vendors
+                WHERE regexp_replace(COALESCE(gst_number,''), '[^0-9]', '', 'g') = $1
+                LIMIT 1`,
+              [vendorGstNormalized]
+            );
+            if (res.rows[0]?.id) return { vendorId: res.rows[0].id as string, pricesIncludeGst: false };
+          }
+          if (vendorNameNormalized) {
+            const res = await client.query(
+              `SELECT id
+                 FROM vendors
+                WHERE lower(trim(name)) = $1
+                LIMIT 1`,
+              [vendorNameNormalized]
+            );
+            if (res.rows[0]?.id) return { vendorId: res.rows[0].id as string, pricesIncludeGst: false };
+          }
+          return { vendorId: null, pricesIncludeGst: false };
+        }
+        throw err;
+      }
+    };
+
     const freight = 0;
+
+    await client.query('BEGIN');
+
+    const { vendorId, pricesIncludeGst } = await matchVendor();
+
+    const normalizePriceExGst = (price: number | null): number | null => {
+      if (price === null) return null;
+      if (!pricesIncludeGst) return price;
+      // Convert incl-GST → ex-GST using NZ 15% GST.
+      return Math.round((price / 1.15) * 100) / 100;
+    };
+
+    const normalizedItems = (line_items ?? []).map((it) => {
+      const q = toNumberOrNull(it.quantity);
+      const pIncl = toNumberOrNull(it.price);
+      const p = normalizePriceExGst(pIncl);
+      const amt = q !== null && p !== null ? Math.round(q * p * 100) / 100 : null;
+      return { ...it, quantity: q, price: p, _amount_ex: amt };
+    });
+
     const computedSubTotal = Math.round(
-      (line_items ?? []).reduce((sum, it) => {
-        const q = toNumberOrNull(it.quantity);
-        const p = toNumberOrNull(it.price);
-        if (q === null || p === null) return sum;
-        return sum + q * p;
-      }, 0) * 100
+      normalizedItems.reduce((sum, it) => (it._amount_ex === null ? sum : sum + it._amount_ex), 0) * 100
     ) / 100;
     const computedGst = Math.round((computedSubTotal + freight) * 0.15 * 100) / 100;
     const totalAmount = Math.round((computedSubTotal + freight + computedGst) * 100) / 100;
-
-    await client.query('BEGIN');
 
     if (ocrJobId) {
       const existingByJob = await client.query(
@@ -332,8 +416,8 @@ export async function saveInvoice(
       `INSERT INTO invoices
         (type, vendor_name, vendor_address, vendor_gst_number, invoice_number,
          invoice_date, currency, is_tax_invoice, billing_name, billing_address,
-         sub_total, freight, gst_amount, total_amount, image_url, status, category, ocr_job_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         sub_total, freight, gst_amount, total_amount, image_url, status, category, ocr_job_id, vendor_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING id`,
       [
         'Tax Invoice',
@@ -354,6 +438,7 @@ export async function saveInvoice(
         'pending_review',
         deriveCategory(vendorName),
         ocrJobId ?? null,
+        vendorId,
       ]
     );
 
@@ -361,12 +446,12 @@ export async function saveInvoice(
     console.log(`[DB] ✅ Invoice: ${invoiceId}`);
 
     // Insert line items
-    if (line_items?.length) {
-      for (let i = 0; i < line_items.length; i++) {
-        const item = line_items[i];
-        const q = toNumberOrNull(item.quantity);
-        const p = toNumberOrNull(item.price);
-        const amount = q === null || p === null ? null : q * p;
+    if (normalizedItems.length) {
+      for (let i = 0; i < normalizedItems.length; i++) {
+        const item = normalizedItems[i];
+        const q = item.quantity;
+        const p = item.price;
+        const amount = item._amount_ex;
         await insertInvoiceItemRow(client, {
           invoice_id: invoiceId,
           product_code: item.product_code ?? null,
@@ -375,11 +460,11 @@ export async function saveInvoice(
           quantity: q,
           unit: item.unit ?? null,
           price: p,
-          amount_excl_gst: toNumberOrNull((item as { amount_excl_gst?: unknown }).amount_excl_gst) ?? (amount === null ? null : amount),
+          amount_excl_gst: amount,
           sort_order: i + 1,
         });
       }
-      console.log(`[DB] ✅ ${line_items.length} items saved`);
+      console.log(`[DB] ✅ ${normalizedItems.length} items saved`);
     }
 
     await client.query('COMMIT');
@@ -1255,6 +1340,55 @@ export async function listVendors(limit = 200): Promise<string[]> {
     return res.rows.map((r) => r.name as string).filter(Boolean);
   } catch (err) {
     if (isMissingTableError(err)) return [];
+    throw err;
+  }
+}
+
+export type VendorSettingsRow = {
+  id: string;
+  name: string;
+  gst_number: string | null;
+  prices_include_gst: boolean;
+};
+
+export async function listVendorSettings(limit = 500): Promise<VendorSettingsRow[]> {
+  try {
+    const res = await pool.query(
+      `SELECT id, name, gst_number,
+              COALESCE(prices_include_gst, false) AS prices_include_gst
+         FROM vendors
+        ORDER BY name ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return res.rows as VendorSettingsRow[];
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    if (isMissingColumnError(err, 'prices_include_gst')) {
+      const res = await pool.query(
+        `SELECT id, name, gst_number, false AS prices_include_gst
+           FROM vendors
+          ORDER BY name ASC
+          LIMIT $1`,
+        [limit]
+      );
+      return res.rows as VendorSettingsRow[];
+    }
+    throw err;
+  }
+}
+
+export async function updateVendorPricesIncludeGst(vendorId: string, value: boolean): Promise<boolean> {
+  try {
+    await pool.query(
+      `UPDATE vendors SET prices_include_gst=$2, updated_at=NOW() WHERE id=$1`,
+      [vendorId, value]
+    );
+    return true;
+  } catch (err) {
+    if (isMissingColumnError(err, 'prices_include_gst')) {
+      throw new Error('DB is missing vendors.prices_include_gst. Run the migration first.');
+    }
     throw err;
   }
 }

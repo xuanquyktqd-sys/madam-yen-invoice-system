@@ -234,6 +234,10 @@ export default function DashboardPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [vendorOptions, setVendorOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
+  const [vendorSettingsOpen, setVendorSettingsOpen] = useState(false);
+  const [vendorSettings, setVendorSettings] = useState<Array<{ id: string; name: string; gst_number: string | null; prices_include_gst: boolean }>>([]);
+  const [vendorSettingsLoading, setVendorSettingsLoading] = useState(false);
+  const [vendorSettingsSavingId, setVendorSettingsSavingId] = useState<string | null>(null);
   const [manualProductOptions, setManualProductOptions] = useState<Array<{
     name: string;
     vendor_product_code: string | null;
@@ -504,6 +508,26 @@ export default function DashboardPage() {
       setUnitOptions(Array.isArray(u?.units) ? u.units : []);
     });
   }, []);
+
+  const fetchVendorSettings = useCallback(async () => {
+    setVendorSettingsLoading(true);
+    try {
+      const res = await fetch('/api/vendor-settings');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? 'Failed to load vendor settings');
+      setVendorSettings(Array.isArray(json?.vendors) ? json.vendors : []);
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+      setVendorSettings([]);
+    } finally {
+      setVendorSettingsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!vendorSettingsOpen) return;
+    void fetchVendorSettings();
+  }, [vendorSettingsOpen, fetchVendorSettings]);
 
   useEffect(() => {
     if (!manualOpen) return;
@@ -1173,6 +1197,14 @@ export default function DashboardPage() {
               </svg>
               CSV
             </button>
+            <button
+              type="button"
+              onClick={() => setVendorSettingsOpen(true)}
+              className="hidden sm:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border border-slate-700"
+              title="Vendor settings"
+            >
+              🏷️ Vendors
+            </button>
 
             {/* Mobile hamburger */}
             <button
@@ -1224,12 +1256,113 @@ export default function DashboardPage() {
                 <span className="font-semibold">⬇️ Export CSV</span>
                 <span className="text-slate-400">→</span>
               </button>
+              <button
+                onClick={() => { setMobileMenuOpen(false); setVendorSettingsOpen(true); }}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
+              >
+                <span className="font-semibold">🏷️ Vendor settings</span>
+                <span className="text-slate-400">→</span>
+              </button>
             </div>
           </div>
         </div>
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* ── Vendor Settings Modal ───────────────────────────────────────── */}
+        {vendorSettingsOpen && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 rounded-2xl w-full max-w-3xl border border-slate-700 shadow-2xl overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h2 className="font-bold text-white text-lg">Vendor settings</h2>
+                  <p className="text-xs text-slate-400 mt-1">Configure vendor GST mode. Default is ex-GST.</p>
+                </div>
+                <button onClick={() => setVendorSettingsOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <button
+                    type="button"
+                    onClick={fetchVendorSettings}
+                    disabled={vendorSettingsLoading}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm border border-slate-700 disabled:opacity-60"
+                  >
+                    {vendorSettingsLoading ? 'Loading…' : 'Refresh'}
+                  </button>
+                  <div className="text-xs text-slate-500">Tip: If a vendor shows prices incl GST, enable it here.</div>
+                </div>
+
+                <div className="overflow-auto max-h-[60vh] border border-slate-800 rounded-xl">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-900 border-b border-slate-800">
+                      <tr className="text-slate-400">
+                        <th className="px-4 py-3 text-left font-semibold">Vendor</th>
+                        <th className="px-4 py-3 text-left font-semibold">GST #</th>
+                        <th className="px-4 py-3 text-right font-semibold">Prices include GST</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vendorSettingsLoading ? (
+                        <tr>
+                          <td colSpan={3} className="px-4 py-6 text-slate-400">Loading…</td>
+                        </tr>
+                      ) : vendorSettings.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="px-4 py-6 text-slate-400">No vendors found.</td>
+                        </tr>
+                      ) : (
+                        vendorSettings.map((v) => (
+                          <tr key={v.id} className="border-t border-slate-800">
+                            <td className="px-4 py-3 text-slate-100 font-medium">{v.name}</td>
+                            <td className="px-4 py-3 text-slate-300 font-mono text-xs">{v.gst_number ?? '—'}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                disabled={vendorSettingsSavingId === v.id}
+                                onClick={async () => {
+                                  setVendorSettingsSavingId(v.id);
+                                  try {
+                                    const res = await fetch('/api/vendor-settings', {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ vendor_id: v.id, prices_include_gst: !v.prices_include_gst }),
+                                    });
+                                    const json = await res.json().catch(() => ({}));
+                                    if (!res.ok) throw new Error(json.error ?? 'Failed to update vendor');
+                                    setVendorSettings((prev) => prev.map((x) => x.id === v.id ? { ...x, prices_include_gst: !x.prices_include_gst } : x));
+                                  } catch (err) {
+                                    showToast((err as Error).message, 'error');
+                                  } finally {
+                                    setVendorSettingsSavingId(null);
+                                  }
+                                }}
+                                className={`inline-flex items-center justify-center px-3 py-1.5 rounded-lg border text-xs font-bold ${
+                                  v.prices_include_gst
+                                    ? 'bg-emerald-700/30 border-emerald-700 text-emerald-200'
+                                    : 'bg-slate-800 border-slate-700 text-slate-200'
+                                } ${vendorSettingsSavingId === v.id ? 'opacity-60' : ''}`}
+                                title="Toggle GST mode"
+                              >
+                                {v.prices_include_gst ? 'ON' : 'OFF'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Credit Note Modal ───────────────────────────────────────────── */}
         {creditOpen && selectedInvoice && (
           <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
