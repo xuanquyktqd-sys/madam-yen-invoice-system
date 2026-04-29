@@ -238,6 +238,9 @@ export default function DashboardPage() {
   const [vendorSettings, setVendorSettings] = useState<Array<{ id: string; name: string; gst_number: string | null; prices_include_gst: boolean }>>([]);
   const [vendorSettingsLoading, setVendorSettingsLoading] = useState(false);
   const [vendorSettingsSavingId, setVendorSettingsSavingId] = useState<string | null>(null);
+  const [vendorCreateOpen, setVendorCreateOpen] = useState(false);
+  const [vendorCreateForm, setVendorCreateForm] = useState({ name: '', gst_number: '', address: '', prices_include_gst: false });
+  const [vendorCreateSaving, setVendorCreateSaving] = useState(false);
   const [manualProductOptions, setManualProductOptions] = useState<Array<{
     name: string;
     vendor_product_code: string | null;
@@ -745,7 +748,11 @@ export default function DashboardPage() {
       if (selectedInvoice?.id === id) {
         setSelectedInvoice((prev) => prev ? { ...prev, status } : prev);
       }
+      return;
     }
+
+    const json = await res.json().catch(() => ({}));
+    showToast(json.error ?? 'Failed to update status', 'error');
   };
 
   // ── Delete invoice ─────────────────────────────────────────────────────────
@@ -1295,6 +1302,13 @@ export default function DashboardPage() {
                   >
                     {vendorSettingsLoading ? 'Loading…' : 'Refresh'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setVendorCreateOpen(true)}
+                    className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm border border-emerald-500"
+                  >
+                    + Create vendor
+                  </button>
                   <div className="text-xs text-slate-500">Tip: If a vendor shows prices incl GST, enable it here.</div>
                 </div>
 
@@ -1305,16 +1319,17 @@ export default function DashboardPage() {
                         <th className="px-4 py-3 text-left font-semibold">Vendor</th>
                         <th className="px-4 py-3 text-left font-semibold">GST #</th>
                         <th className="px-4 py-3 text-right font-semibold">Prices include GST</th>
+                        <th className="px-4 py-3 text-right font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {vendorSettingsLoading ? (
                         <tr>
-                          <td colSpan={3} className="px-4 py-6 text-slate-400">Loading…</td>
+                          <td colSpan={4} className="px-4 py-6 text-slate-400">Loading…</td>
                         </tr>
                       ) : vendorSettings.length === 0 ? (
                         <tr>
-                          <td colSpan={3} className="px-4 py-6 text-slate-400">No vendors found.</td>
+                          <td colSpan={4} className="px-4 py-6 text-slate-400">No vendors found.</td>
                         </tr>
                       ) : (
                         vendorSettings.map((v) => (
@@ -1352,11 +1367,142 @@ export default function DashboardPage() {
                                 {v.prices_include_gst ? 'ON' : 'OFF'}
                               </button>
                             </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const ok = window.confirm(`Delete vendor "${v.name}"? This cannot be undone.`);
+                                  if (!ok) return;
+                                  try {
+                                    const res = await fetch('/api/vendor-settings', {
+                                      method: 'DELETE',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ vendor_id: v.id }),
+                                    });
+                                    const json = await res.json().catch(() => ({}));
+                                    if (!res.ok) throw new Error(json.error ?? 'Failed to delete vendor');
+                                    setVendorSettings((prev) => prev.filter((x) => x.id !== v.id));
+                                    showToast('Vendor deleted', 'success');
+                                  } catch (err) {
+                                    showToast((err as Error).message, 'error');
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold hover:bg-red-600 hover:border-red-600"
+                              >
+                                Delete
+                              </button>
+                            </td>
                           </tr>
                         ))
                       )}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {vendorSettingsOpen && vendorCreateOpen && (
+          <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 rounded-2xl w-full max-w-lg border border-slate-700 shadow-2xl overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+                <h3 className="font-bold text-white text-lg">Create vendor</h3>
+                <button onClick={() => setVendorCreateOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <label className="text-sm block">
+                  <div className="text-slate-400 mb-1">Vendor name *</div>
+                  <input
+                    value={vendorCreateForm.name}
+                    onChange={(e) => setVendorCreateForm((p) => ({ ...p, name: e.target.value }))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    placeholder="Tokyo Food"
+                  />
+                </label>
+                <label className="text-sm block">
+                  <div className="text-slate-400 mb-1">GST number</div>
+                  <input
+                    value={vendorCreateForm.gst_number}
+                    onChange={(e) => setVendorCreateForm((p) => ({ ...p, gst_number: e.target.value }))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
+                    placeholder="66-442-659"
+                  />
+                </label>
+                <label className="text-sm block">
+                  <div className="text-slate-400 mb-1">Address</div>
+                  <input
+                    value={vendorCreateForm.address}
+                    onChange={(e) => setVendorCreateForm((p) => ({ ...p, address: e.target.value }))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    placeholder="Optional"
+                  />
+                </label>
+                <label className="text-sm flex items-center gap-2 select-none">
+                  <input
+                    type="checkbox"
+                    checked={vendorCreateForm.prices_include_gst}
+                    onChange={(e) => setVendorCreateForm((p) => ({ ...p, prices_include_gst: e.target.checked }))}
+                  />
+                  <span className="text-slate-200 font-semibold">Prices include GST</span>
+                  <span className="text-slate-500 text-xs">(default: OFF / ex-GST)</span>
+                </label>
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    onClick={() => setVendorCreateOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={vendorCreateSaving}
+                    onClick={async () => {
+                      const name = vendorCreateForm.name.trim();
+                      if (!name) {
+                        showToast('Vendor name is required', 'error');
+                        return;
+                      }
+                      setVendorCreateSaving(true);
+                      try {
+                        const res = await fetch('/api/vendor-settings', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            name,
+                            gst_number: vendorCreateForm.gst_number.trim() || null,
+                            address: vendorCreateForm.address.trim() || null,
+                            prices_include_gst: vendorCreateForm.prices_include_gst,
+                          }),
+                        });
+                        const json = await res.json().catch(() => ({}));
+                        if (!res.ok) throw new Error(json.error ?? 'Failed to create vendor');
+                        if (json.vendor) {
+                          setVendorSettings((prev) => {
+                            const next = [json.vendor, ...prev];
+                            next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+                            return next;
+                          });
+                        } else {
+                          await fetchVendorSettings();
+                        }
+                        showToast('Vendor created', 'success');
+                        setVendorCreateOpen(false);
+                        setVendorCreateForm({ name: '', gst_number: '', address: '', prices_include_gst: false });
+                      } catch (err) {
+                        showToast((err as Error).message, 'error');
+                      } finally {
+                        setVendorCreateSaving(false);
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-60"
+                  >
+                    {vendorCreateSaving ? 'Creating…' : 'Create'}
+                  </button>
                 </div>
               </div>
             </div>

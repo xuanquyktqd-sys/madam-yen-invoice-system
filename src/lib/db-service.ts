@@ -1356,6 +1356,84 @@ export type VendorSettingsRow = {
   prices_include_gst: boolean;
 };
 
+export async function createVendor(input: {
+  name: string;
+  gst_number?: string | null;
+  address?: string | null;
+  prices_include_gst?: boolean;
+}): Promise<VendorSettingsRow> {
+  const name = input.name.trim();
+  if (!name) throw new Error('name is required');
+
+  try {
+    const res = await pool.query(
+      `INSERT INTO vendors (name, gst_number, address, prices_include_gst, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,NOW(),NOW())
+       ON CONFLICT (name) DO UPDATE
+         SET gst_number = COALESCE(EXCLUDED.gst_number, vendors.gst_number),
+             address = COALESCE(EXCLUDED.address, vendors.address),
+             prices_include_gst = COALESCE(EXCLUDED.prices_include_gst, vendors.prices_include_gst),
+             updated_at = NOW()
+       RETURNING id, name, gst_number, COALESCE(prices_include_gst,false) AS prices_include_gst`,
+      [
+        name,
+        input.gst_number ?? null,
+        input.address ?? null,
+        typeof input.prices_include_gst === 'boolean' ? input.prices_include_gst : false,
+      ]
+    );
+    return res.rows[0] as VendorSettingsRow;
+  } catch (err) {
+    if (isMissingColumnError(err, 'prices_include_gst')) {
+      const res = await pool.query(
+        `INSERT INTO vendors (name, gst_number, address, created_at, updated_at)
+         VALUES ($1,$2,$3,NOW(),NOW())
+         ON CONFLICT (name) DO UPDATE
+           SET gst_number = COALESCE(EXCLUDED.gst_number, vendors.gst_number),
+               address = COALESCE(EXCLUDED.address, vendors.address),
+               updated_at = NOW()
+         RETURNING id, name, gst_number, false AS prices_include_gst`,
+        [name, input.gst_number ?? null, input.address ?? null]
+      );
+      return res.rows[0] as VendorSettingsRow;
+    }
+    throw err;
+  }
+}
+
+export async function deleteVendorById(vendorId: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const inInvoices = await client.query(`SELECT 1 FROM invoices WHERE vendor_id=$1 LIMIT 1`, [vendorId]);
+    if (inInvoices.rows.length) {
+      await client.query('ROLLBACK');
+      return { ok: false, status: 409, error: 'Vendor is in use (invoices).' };
+    }
+
+    try {
+      const inProducts = await client.query(`SELECT 1 FROM restaurant_products WHERE vendor_id=$1 LIMIT 1`, [vendorId]);
+      if (inProducts.rows.length) {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 409, error: 'Vendor is in use (products).' };
+      }
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err;
+    }
+
+    const del = await client.query(`DELETE FROM vendors WHERE id=$1`, [vendorId]);
+    await client.query('COMMIT');
+    if ((del.rowCount ?? 0) === 0) return { ok: false, status: 404, error: 'Vendor not found' };
+    return { ok: true };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return { ok: false, status: 500, error: (err as Error).message };
+  } finally {
+    client.release();
+  }
+}
+
 export async function listVendorSettings(limit = 500): Promise<VendorSettingsRow[]> {
   try {
     const res = await pool.query(

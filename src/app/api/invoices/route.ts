@@ -60,6 +60,15 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Invoice ID required' }, { status: 400 });
     }
 
+    // Enforce vendor mapping before approve (server-side guard).
+    if ((updates as Record<string, unknown>)?.status === 'approved') {
+      const existing = await getInvoiceById(id);
+      const vendorId = existing ? (existing.vendor_id as string | null | undefined) : null;
+      if (!vendorId) {
+        return NextResponse.json({ error: 'Vendor not mapped. Map vendor before approving.' }, { status: 409 });
+      }
+    }
+
     const items: ManualInvoiceItemInput[] | undefined = Array.isArray(invoice_items)
       ? (invoice_items as unknown[])
           .filter((x) => typeof x === 'object' && x !== null)
