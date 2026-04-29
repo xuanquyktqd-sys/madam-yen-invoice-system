@@ -119,6 +119,23 @@ type OcrNotification = {
   };
 };
 
+type VendorSetting = {
+  id: string;
+  name: string;
+  gst_number: string | null;
+  prices_include_gst: boolean;
+};
+
+type CacheEntry<T> = {
+  data: T;
+  savedAt: number;
+};
+
+type InvoiceListCache = {
+  invoices: Invoice[];
+  total: number;
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const formatNZD = (n: number) =>
   new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(n);
@@ -176,6 +193,54 @@ const safeReadJson = async (res: Response): Promise<{ json: unknown; text: strin
   }
 };
 
+const CACHE_PREFIX = 'madam-yen:v1:';
+const INVOICE_CACHE_PREFIX = `${CACHE_PREFIX}invoices:`;
+const REPORT_CACHE_PREFIX = `${CACHE_PREFIX}cost-report:`;
+const VENDOR_SETTINGS_CACHE_KEY = `${CACHE_PREFIX}vendor-settings`;
+const CATALOG_VENDORS_CACHE_KEY = `${CACHE_PREFIX}catalog:vendors`;
+const CATALOG_UNITS_CACHE_KEY = `${CACHE_PREFIX}catalog:units`;
+
+const readSessionCache = <T,>(key: string): T | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as CacheEntry<T>;
+    return entry?.data ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const writeSessionCache = <T,>(key: string, data: T) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now() } satisfies CacheEntry<T>));
+  } catch {
+    // Cache is only an optimization; ignore quota/private-mode failures.
+  }
+};
+
+const removeSessionCache = (key: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {}
+};
+
+const removeSessionCacheByPrefix = (prefix: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    for (let i = window.sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = window.sessionStorage.key(i);
+      if (key?.startsWith(prefix)) window.sessionStorage.removeItem(key);
+    }
+  } catch {}
+};
+
+const makeParamCacheKey = (prefix: string, params: URLSearchParams) =>
+  `${prefix}${params.toString() || 'all'}`;
+
 // ─── Dashboard Page ──────────────────────────────────────────────────────────
 export default function DashboardPage() {
   type MoneyFieldKey = 'sub_total' | 'freight' | 'gst_amount' | 'total_amount';
@@ -229,6 +294,7 @@ export default function DashboardPage() {
   const pollStartedAtRef = useRef<number>(0);
   const autoRetryTriggeredRef = useRef(false);
   const activeJobsPollRef = useRef<number | null>(null);
+  const previousActiveJobIdsRef = useRef<string[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reviewMenuOpen, setReviewMenuOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -236,7 +302,7 @@ export default function DashboardPage() {
   const [vendorOptions, setVendorOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [vendorSettingsOpen, setVendorSettingsOpen] = useState(false);
-  const [vendorSettings, setVendorSettings] = useState<Array<{ id: string; name: string; gst_number: string | null; prices_include_gst: boolean }>>([]);
+  const [vendorSettings, setVendorSettings] = useState<VendorSetting[]>([]);
   const [vendorSettingsLoading, setVendorSettingsLoading] = useState(false);
   const [vendorSettingsSavingId, setVendorSettingsSavingId] = useState<string | null>(null);
   const [vendorCreateOpen, setVendorCreateOpen] = useState(false);
@@ -368,25 +434,61 @@ export default function DashboardPage() {
     setDateTo(to);
   };
 
+  const buildInvoiceParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (filterStatus !== 'all') params.set('status', filterStatus);
+    if (search) params.set('search', search);
+    if (dateFrom) params.set('from', dateFrom);
+    if (dateTo) params.set('to', dateTo);
+    return params;
+  }, [filterStatus, search, dateFrom, dateTo]);
+
+  const buildReportParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (filterStatus !== 'all') params.set('status', filterStatus);
+    if (dateFrom) params.set('from', dateFrom);
+    if (dateTo) params.set('to', dateTo);
+    if (reportVendorFilter.trim()) params.set('vendor', reportVendorFilter.trim());
+    if (reportProductSearch.trim()) params.set('product_q', reportProductSearch.trim());
+    return params;
+  }, [filterStatus, dateFrom, dateTo, reportVendorFilter, reportProductSearch]);
+
+  const invalidateInvoiceCaches = useCallback(() => {
+    removeSessionCacheByPrefix(INVOICE_CACHE_PREFIX);
+    removeSessionCacheByPrefix(REPORT_CACHE_PREFIX);
+  }, []);
+
   // ── Fetch invoices ────────────────────────────────────────────────────────
-  const fetchInvoices = useCallback(async () => {
+  const fetchInvoices = useCallback(async (opts?: { force?: boolean }) => {
+    const params = buildInvoiceParams();
+    const cacheKey = makeParamCacheKey(INVOICE_CACHE_PREFIX, params);
+    if (!opts?.force) {
+      const cached = readSessionCache<InvoiceListCache>(cacheKey);
+      if (cached) {
+        setInvoices(cached.invoices);
+        setTotalCount(cached.total);
+        setLoading(false);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filterStatus !== 'all') params.set('status', filterStatus);
-      if (search) params.set('search', search);
-      if (dateFrom) params.set('from', dateFrom);
-      if (dateTo) params.set('to', dateTo);
       const res = await fetch(`/api/invoices?${params.toString()}`);
       const json = await res.json();
-      setInvoices(json.invoices ?? []);
-      setTotalCount(json.total ?? 0);
+      const next = {
+        invoices: Array.isArray(json.invoices) ? json.invoices : [],
+        total: Number.isFinite(Number(json.total)) ? Number(json.total) : 0,
+      };
+      setInvoices(next.invoices);
+      setTotalCount(next.total);
+      writeSessionCache(cacheKey, next);
     } catch {
       showToast('Failed to load invoices', 'error');
     } finally {
       setLoading(false);
     }
-  }, [filterStatus, search, dateFrom, dateTo]);
+  }, [buildInvoiceParams]);
 
   const fetchInvoiceById = useCallback(async (id: string): Promise<Invoice | null> => {
     const res = await fetch(`/api/invoices?id=${encodeURIComponent(id)}`);
@@ -444,28 +546,35 @@ export default function DashboardPage() {
     }
   }, [fetchActiveOcrJobs]);
 
-  const fetchCostReport = useCallback(async () => {
+  const fetchCostReport = useCallback(async (opts?: { force?: boolean }) => {
+    const params = buildReportParams();
+    const cacheKey = makeParamCacheKey(REPORT_CACHE_PREFIX, params);
+    if (!opts?.force) {
+      const cached = readSessionCache<CostReport>(cacheKey);
+      if (cached) {
+        setCostReport(cached);
+        setReportLoading(false);
+        return;
+      }
+    }
+
     setReportLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filterStatus !== 'all') params.set('status', filterStatus);
-      if (dateFrom) params.set('from', dateFrom);
-      if (dateTo) params.set('to', dateTo);
-      if (reportVendorFilter.trim()) params.set('vendor', reportVendorFilter.trim());
-      if (reportProductSearch.trim()) params.set('product_q', reportProductSearch.trim());
       const res = await fetch(`/api/reports/cost?${params.toString()}`);
       const json = await res.json();
       if (!res.ok) {
         throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to load cost report');
       }
-      setCostReport({
+      const next = {
         vendor_summary: Array.isArray(json?.vendor_summary) ? json.vendor_summary : [],
         product_summary: Array.isArray(json?.product_summary) ? json.product_summary : [],
         price_insights: {
           increased: Array.isArray(json?.price_insights?.increased) ? json.price_insights.increased : [],
           decreased: Array.isArray(json?.price_insights?.decreased) ? json.price_insights.decreased : [],
         },
-      });
+      };
+      setCostReport(next);
+      writeSessionCache(cacheKey, next);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load cost report';
       showToast(message, 'error');
@@ -477,12 +586,26 @@ export default function DashboardPage() {
     } finally {
       setReportLoading(false);
     }
-  }, [filterStatus, dateFrom, dateTo, reportVendorFilter, reportProductSearch]);
+  }, [buildReportParams]);
+
+  const refreshAfterInvoiceMutation = useCallback(async () => {
+    invalidateInvoiceCaches();
+    await fetchInvoices({ force: true });
+    if (dashboardView === 'report') {
+      await fetchCostReport({ force: true });
+    }
+  }, [dashboardView, fetchCostReport, fetchInvoices, invalidateInvoiceCaches]);
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
-  useEffect(() => { fetchCostReport(); }, [fetchCostReport]);
+  useEffect(() => {
+    if (dashboardView !== 'report') return;
+    void fetchCostReport();
+  }, [dashboardView, fetchCostReport]);
   useEffect(() => { fetchActiveOcrJobs(); }, [fetchActiveOcrJobs]);
-  useEffect(() => { fetchOcrNotifications(); }, [fetchOcrNotifications]);
+  useEffect(() => {
+    if (!notifOpen) return;
+    void fetchOcrNotifications();
+  }, [notifOpen, fetchOcrNotifications]);
   useEffect(() => () => {
     if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
     if (activeJobsPollRef.current) window.clearTimeout(activeJobsPollRef.current);
@@ -502,31 +625,71 @@ export default function DashboardPage() {
       if (activeJobsPollRef.current) window.clearTimeout(activeJobsPollRef.current);
     };
   }, [activeOcrJobs.length, uploadStep, fetchActiveOcrJobs]);
+
+  useEffect(() => {
+    const previousIds = previousActiveJobIdsRef.current;
+    const currentIds = activeOcrJobs.map((job) => job.id);
+    const completedOrFailed = previousIds.some((id) => !currentIds.includes(id));
+    previousActiveJobIdsRef.current = currentIds;
+    if (!completedOrFailed) return;
+    void refreshAfterInvoiceMutation();
+    void fetchOcrNotifications();
+  }, [activeOcrJobs, fetchOcrNotifications, refreshAfterInvoiceMutation]);
   useEffect(() => {
     // Optional catalog endpoints (safe to fail before DB migration is applied)
+    const cachedVendors = readSessionCache<string[]>(CATALOG_VENDORS_CACHE_KEY);
+    const cachedUnits = readSessionCache<string[]>(CATALOG_UNITS_CACHE_KEY);
+    if (cachedVendors) setVendorOptions(cachedVendors);
+    if (cachedUnits) setUnitOptions(cachedUnits);
+    if (cachedVendors && cachedUnits) return;
+
     void Promise.all([
-      fetch('/api/catalog/vendors').then((r) => r.json()).catch(() => ({})),
-      fetch('/api/catalog/units').then((r) => r.json()).catch(() => ({})),
+      cachedVendors
+        ? Promise.resolve({ vendors: cachedVendors })
+        : fetch('/api/catalog/vendors').then((r) => r.json()).catch(() => ({})),
+      cachedUnits
+        ? Promise.resolve({ units: cachedUnits })
+        : fetch('/api/catalog/units').then((r) => r.json()).catch(() => ({})),
     ]).then(([v, u]) => {
-      setVendorOptions(Array.isArray(v?.vendors) ? v.vendors : []);
-      setUnitOptions(Array.isArray(u?.units) ? u.units : []);
+      const vendors = Array.isArray(v?.vendors) ? v.vendors : [];
+      const units = Array.isArray(u?.units) ? u.units : [];
+      setVendorOptions(vendors);
+      setUnitOptions(units);
+      if (!cachedVendors) writeSessionCache(CATALOG_VENDORS_CACHE_KEY, vendors);
+      if (!cachedUnits) writeSessionCache(CATALOG_UNITS_CACHE_KEY, units);
     });
   }, []);
 
-  const fetchVendorSettings = useCallback(async () => {
+  const setCachedVendorSettings = useCallback((updater: VendorSetting[] | ((prev: VendorSetting[]) => VendorSetting[])) => {
+    setVendorSettings((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      writeSessionCache(VENDOR_SETTINGS_CACHE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const fetchVendorSettings = useCallback(async (opts?: { force?: boolean }) => {
+    const cached = opts?.force ? null : readSessionCache<VendorSetting[]>(VENDOR_SETTINGS_CACHE_KEY);
+    if (cached) {
+      setVendorSettings(cached);
+      setVendorSettingsLoading(false);
+      return;
+    }
+
     setVendorSettingsLoading(true);
     try {
       const res = await fetch('/api/vendor-settings');
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? 'Failed to load vendor settings');
-      setVendorSettings(Array.isArray(json?.vendors) ? json.vendors : []);
+      const vendors = Array.isArray(json?.vendors) ? json.vendors : [];
+      setCachedVendorSettings(vendors);
     } catch (err) {
       showToast((err as Error).message, 'error');
       setVendorSettings([]);
     } finally {
       setVendorSettingsLoading(false);
     }
-  }, []);
+  }, [setCachedVendorSettings]);
 
   useEffect(() => {
     if (!vendorSettingsOpen) return;
@@ -659,7 +822,7 @@ export default function DashboardPage() {
               setProcessingMsg(
                 `Scanned with ${job.ocr_provider || 'gemini'}/${job.ocr_model || 'model'} — loading invoice...`
               );
-              await fetchInvoices();
+              await refreshAfterInvoiceMutation();
               if (invoice) setSelectedInvoice(invoice);
               showToast(
                 `Success${job.ocr_model ? ` (${job.ocr_provider || 'gemini'}/${job.ocr_model})` : ''}`,
@@ -745,7 +908,7 @@ export default function DashboardPage() {
     });
     if (res.ok) {
       showToast(status === 'approved' ? 'Invoice approved' : 'Invoice rejected', 'success');
-      await fetchInvoices();
+      await refreshAfterInvoiceMutation();
       if (selectedInvoice?.id === id) {
         setSelectedInvoice((prev) => prev ? { ...prev, status } : prev);
       }
@@ -770,7 +933,7 @@ export default function DashboardPage() {
     if (res.ok) {
       showToast('Invoice deleted', 'success');
       if (selectedInvoice?.id === id) setSelectedInvoice(null);
-      await fetchInvoices();
+      await refreshAfterInvoiceMutation();
       return;
     }
 
@@ -862,7 +1025,7 @@ export default function DashboardPage() {
 
       showToast('Manual invoice created', 'success');
       setManualOpen(false);
-      await fetchInvoices();
+      await refreshAfterInvoiceMutation();
       if (json.invoice) {
         setSelectedInvoice(json.invoice);
       }
@@ -980,7 +1143,7 @@ export default function DashboardPage() {
 
       showToast('Credit note created', 'success');
       setCreditOpen(false);
-      await fetchInvoices();
+      await refreshAfterInvoiceMutation();
       if (json.invoice) setSelectedInvoice(json.invoice);
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -1079,7 +1242,7 @@ export default function DashboardPage() {
       }
       showToast('Changes saved', 'success');
       setEditMode(false);
-      await fetchInvoices();
+      await refreshAfterInvoiceMutation();
       if (json.invoice) setSelectedInvoice(json.invoice);
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -1294,15 +1457,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <button
-                    type="button"
-                    onClick={fetchVendorSettings}
-                    disabled={vendorSettingsLoading}
-                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm border border-slate-700 disabled:opacity-60"
-                  >
-                    {vendorSettingsLoading ? 'Loading…' : 'Refresh'}
-                  </button>
+                <div className="flex items-center justify-between gap-3 mb-4">
                   <button
                     type="button"
                     onClick={() => setVendorCreateOpen(true)}
@@ -1327,7 +1482,12 @@ export default function DashboardPage() {
                             `Cleanup done: vendors ${r.deleted_vendors ?? 0}, products ${r.deleted_restaurant_products ?? 0}, units ${r.deleted_units ?? 0}, standards ${r.deleted_standards ?? 0}`,
                             'success'
                           );
-                          await fetchVendorSettings();
+                          removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
+                          removeSessionCache(CATALOG_VENDORS_CACHE_KEY);
+                          removeSessionCache(CATALOG_UNITS_CACHE_KEY);
+                          setVendorOptions([]);
+                          setUnitOptions([]);
+                          await fetchVendorSettings({ force: true });
                         } catch (err) {
                           showToast((err as Error).message, 'error');
                         }
@@ -1379,7 +1539,7 @@ export default function DashboardPage() {
                                     });
                                     const json = await res.json().catch(() => ({}));
                                     if (!res.ok) throw new Error(json.error ?? 'Failed to update vendor');
-                                    setVendorSettings((prev) => prev.map((x) => x.id === v.id ? { ...x, prices_include_gst: !x.prices_include_gst } : x));
+                                    setCachedVendorSettings((prev) => prev.map((x) => x.id === v.id ? { ...x, prices_include_gst: !x.prices_include_gst } : x));
                                   } catch (err) {
                                     showToast((err as Error).message, 'error');
                                   } finally {
@@ -1410,7 +1570,12 @@ export default function DashboardPage() {
                                     });
                                     const json = await res.json().catch(() => ({}));
                                     if (!res.ok) throw new Error(json.error ?? 'Failed to delete vendor');
-                                    setVendorSettings((prev) => prev.filter((x) => x.id !== v.id));
+                                    setCachedVendorSettings((prev) => prev.filter((x) => x.id !== v.id));
+                                    setVendorOptions((prev) => {
+                                      const next = prev.filter((name) => name !== v.name);
+                                      writeSessionCache(CATALOG_VENDORS_CACHE_KEY, next);
+                                      return next;
+                                    });
                                     showToast('Vendor deleted', 'success');
                                   } catch (err) {
                                     showToast((err as Error).message, 'error');
@@ -1511,13 +1676,22 @@ export default function DashboardPage() {
                         const json = await res.json().catch(() => ({}));
                         if (!res.ok) throw new Error(json.error ?? 'Failed to create vendor');
                         if (json.vendor) {
-                          setVendorSettings((prev) => {
+                          setCachedVendorSettings((prev) => {
                             const next = [json.vendor, ...prev];
                             next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
                             return next;
                           });
+                          setVendorOptions((prev) => {
+                            const name = String(json.vendor.name ?? '');
+                            if (!name || prev.includes(name)) return prev;
+                            const next = [name, ...prev].sort((a, b) => a.localeCompare(b));
+                            writeSessionCache(CATALOG_VENDORS_CACHE_KEY, next);
+                            return next;
+                          });
                         } else {
-                          await fetchVendorSettings();
+                          removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
+                          removeSessionCache(CATALOG_VENDORS_CACHE_KEY);
+                          await fetchVendorSettings({ force: true });
                         }
                         showToast('Vendor created', 'success');
                         setVendorCreateOpen(false);
@@ -2506,10 +2680,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
-            onClick={() => {
-              setNotifOpen(true);
-              void fetchOcrNotifications();
-            }}
+            onClick={() => setNotifOpen(true)}
             className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 text-sm font-semibold hover:border-slate-500"
           >
             Notifications
