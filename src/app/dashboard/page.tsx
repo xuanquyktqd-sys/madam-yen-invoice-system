@@ -19,6 +19,7 @@ type Invoice = {
   type: string;
   vendor_name: string;
   vendor_gst_number: string | null;
+  vendor_id?: string | null;
   invoice_number: string | null;
   invoice_date: string;
   currency: string;
@@ -1995,14 +1996,20 @@ export default function DashboardPage() {
             <div className="min-h-full flex items-start justify-center p-4 py-8">
               <div className="w-full max-w-6xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
                 {/* Review header */}
-                <div className="px-6 py-4 pr-28 border-b border-slate-800 flex items-center justify-between relative">
-                  <div>
-                    <h2 className="font-bold text-white text-lg">{selectedInvoice.vendor_name}</h2>
-                    <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {formatDisplayDate(selectedInvoice.invoice_date)}</p>
-                  </div>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                  </div>
-                  <div className="absolute right-4 top-4 flex items-center gap-2">
+	                <div className="px-6 py-4 pr-28 border-b border-slate-800 flex items-center justify-between relative">
+	                  <div>
+	                    <h2 className="font-bold text-white text-lg">{selectedInvoice.vendor_name}</h2>
+	                    <p className="text-slate-400 text-sm">#{selectedInvoice.invoice_number} · {formatDisplayDate(selectedInvoice.invoice_date)}</p>
+	                  </div>
+	                  <div className="flex items-center gap-2 sm:gap-3">
+	                    {!selectedInvoice.vendor_id && (
+	                      <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-rose-950 border border-rose-800 text-rose-200 text-xs font-bold">
+	                        <span className="w-2 h-2 rounded-full bg-rose-400" />
+	                        Vendor not mapped
+	                      </div>
+	                    )}
+	                  </div>
+	                  <div className="absolute right-4 top-4 flex items-center gap-2">
                     <button
                       type="button"
                       aria-label="Open actions menu"
@@ -2821,23 +2828,31 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.map((invoice, idx) => {
-                      const sc = statusConfig[invoice.status];
-                      const isCredit =
-                        (invoice.type ?? '').toLowerCase().includes('credit') ||
-                        (invoice.total_amount ?? 0) < 0 ||
-                        !!invoice.parent_invoice_id;
-                      return (
-                        <tr
-                          key={invoice.id}
-                          className={`border-b border-slate-800/50 hover:bg-slate-800/50 cursor-pointer transition-colors group
-                            ${idx % 2 === 0 ? '' : 'bg-slate-900/50'}`}
-                          onClick={() => setSelectedInvoice(invoice)}>
-                          <td className="px-4 py-4 text-slate-300 font-mono text-xs">{formatDisplayDate(invoice.invoice_date)}</td>
-                          <td className="px-4 py-4">
-                            <div className="font-semibold text-white">{invoice.vendor_name}</div>
-                            {invoice.vendor_gst_number && <div className="text-xs text-slate-500">GST: {invoice.vendor_gst_number}</div>}
-                          </td>
+	                    {invoices.map((invoice, idx) => {
+	                      const sc = statusConfig[invoice.status];
+	                      const vendorUnmapped = !invoice.vendor_id;
+	                      const isCredit =
+	                        (invoice.type ?? '').toLowerCase().includes('credit') ||
+	                        (invoice.total_amount ?? 0) < 0 ||
+	                        !!invoice.parent_invoice_id;
+	                      return (
+	                        <tr
+	                          key={invoice.id}
+	                          className={`border-b border-slate-800/50 hover:bg-slate-800/50 cursor-pointer transition-colors group
+	                            ${idx % 2 === 0 ? '' : 'bg-slate-900/50'}
+	                            ${vendorUnmapped ? 'bg-rose-950/20 hover:bg-rose-950/30' : ''}`}
+	                          onClick={() => setSelectedInvoice(invoice)}>
+	                          <td className="px-4 py-4 text-slate-300 font-mono text-xs">{formatDisplayDate(invoice.invoice_date)}</td>
+	                          <td className="px-4 py-4">
+	                            <div className="font-semibold text-white">{invoice.vendor_name}</div>
+	                            {vendorUnmapped && (
+	                              <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-rose-950 border border-rose-800 text-rose-200 text-[11px] font-semibold">
+	                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+	                                Vendor not mapped
+	                              </div>
+	                            )}
+	                            {invoice.vendor_gst_number && <div className="text-xs text-slate-500">GST: {invoice.vendor_gst_number}</div>}
+	                          </td>
                           <td className="px-4 py-4 text-slate-400 font-mono text-xs">{invoice.invoice_number ?? '—'}</td>
                           <td className="px-4 py-4">
                             <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 text-xs">{invoice.category ?? '—'}</span>
@@ -2852,12 +2867,12 @@ export default function DashboardPage() {
                               {sc.label}
                             </span>
                           </td>
-                          <td className="px-4 py-4">
-                            <span className="text-slate-600 group-hover:text-slate-300 transition-colors text-xs">Xem →</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
+	                          <td className="px-4 py-4">
+	                            <span className="text-slate-600 group-hover:text-slate-300 transition-colors text-xs">View →</span>
+	                          </td>
+	                        </tr>
+	                      );
+	                    })}
                   </tbody>
                 </table>
               </div>
@@ -2865,34 +2880,42 @@ export default function DashboardPage() {
 
             {/* Mobile cards */}
             <div className="lg:hidden space-y-3">
-              {invoices.map((invoice) => {
-                const sc = statusConfig[invoice.status];
-                const isCredit =
-                  (invoice.type ?? '').toLowerCase().includes('credit') ||
-                  (invoice.total_amount ?? 0) < 0 ||
-                  !!invoice.parent_invoice_id;
-                return (
-                  <button
-                    key={invoice.id}
-                    onClick={() => setSelectedInvoice(invoice)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 text-left hover:border-slate-700 transition-all active:scale-99">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <p className="font-bold text-white">{invoice.vendor_name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{formatDisplayDate(invoice.invoice_date)} · #{invoice.invoice_number ?? '—'}</p>
-                      </div>
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${sc.bg} ${sc.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
-                        {sc.label}
-                      </span>
+	              {invoices.map((invoice) => {
+	                const sc = statusConfig[invoice.status];
+	                const vendorUnmapped = !invoice.vendor_id;
+	                const isCredit =
+	                  (invoice.type ?? '').toLowerCase().includes('credit') ||
+	                  (invoice.total_amount ?? 0) < 0 ||
+	                  !!invoice.parent_invoice_id;
+	                return (
+	                  <button
+	                    key={invoice.id}
+	                    onClick={() => setSelectedInvoice(invoice)}
+	                    className={`w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 text-left hover:border-slate-700 transition-all active:scale-99
+	                      ${vendorUnmapped ? 'border-rose-800 bg-rose-950/20' : ''}`}>
+	                    <div className="flex justify-between items-start mb-3">
+	                      <div>
+	                        <p className="font-bold text-white">{invoice.vendor_name}</p>
+	                        <p className="text-xs text-slate-400 mt-0.5">{formatDisplayDate(invoice.invoice_date)} · #{invoice.invoice_number ?? '—'}</p>
+	                        {vendorUnmapped && (
+	                          <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-rose-950 border border-rose-800 text-rose-200 text-[11px] font-semibold">
+	                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+	                            Vendor not mapped
+	                          </div>
+	                        )}
+	                      </div>
+	                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${sc.bg} ${sc.text}`}>
+	                        <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+	                        {sc.label}
+	                      </span>
                     </div>
                     <div className="flex justify-between items-end">
                       <div className="text-xs text-slate-500">GST: <span className="text-slate-300">{formatNZD(invoice.gst_amount)}</span></div>
                       <div className={`text-xl font-black ${isCredit ? 'text-red-400' : 'text-emerald-400'}`}>{formatNZD(invoice.total_amount)}</div>
                     </div>
                   </button>
-                );
-              })}
+	                );
+	              })}
             </div>
           </>
           )
