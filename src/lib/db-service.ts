@@ -1434,6 +1434,84 @@ export async function deleteVendorById(vendorId: string): Promise<{ ok: boolean;
   }
 }
 
+export type OrphanCleanupResult = {
+  deleted_restaurant_products: number;
+  deleted_units: number;
+  deleted_standards: number;
+  deleted_vendors: number;
+};
+
+export async function cleanupOrphanCatalog(): Promise<OrphanCleanupResult> {
+  const client = await pool.connect();
+  const result: OrphanCleanupResult = {
+    deleted_restaurant_products: 0,
+    deleted_units: 0,
+    deleted_standards: 0,
+    deleted_vendors: 0,
+  };
+
+  try {
+    await client.query('BEGIN');
+
+    // Restaurant products: not referenced by any invoice_items.product_id
+    try {
+      const del = await client.query(
+        `DELETE FROM public.restaurant_products rp
+         WHERE NOT EXISTS (
+           SELECT 1 FROM public.invoice_items ii WHERE ii.product_id = rp.id
+         )`
+      );
+      result.deleted_restaurant_products = del.rowCount ?? 0;
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err;
+    }
+
+    // Units: not referenced by invoice_items.unit_id nor restaurant_products.unit_id
+    try {
+      const del = await client.query(
+        `DELETE FROM public.units u
+         WHERE NOT EXISTS (SELECT 1 FROM public.invoice_items ii WHERE ii.unit_id = u.id)
+           AND NOT EXISTS (SELECT 1 FROM public.restaurant_products rp WHERE rp.unit_id = u.id)`
+      );
+      result.deleted_units = del.rowCount ?? 0;
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err;
+    }
+
+    // Standards: not referenced by invoice_items.standard_id nor restaurant_products.standard_id
+    try {
+      const del = await client.query(
+        `DELETE FROM public.standards s
+         WHERE NOT EXISTS (SELECT 1 FROM public.invoice_items ii WHERE ii.standard_id = s.id)
+           AND NOT EXISTS (SELECT 1 FROM public.restaurant_products rp WHERE rp.standard_id = s.id)`
+      );
+      result.deleted_standards = del.rowCount ?? 0;
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err;
+    }
+
+    // Vendors: not referenced by invoices.vendor_id and not referenced by restaurant_products.vendor_id
+    try {
+      const del = await client.query(
+        `DELETE FROM public.vendors v
+         WHERE NOT EXISTS (SELECT 1 FROM public.invoices i WHERE i.vendor_id = v.id)
+           AND NOT EXISTS (SELECT 1 FROM public.restaurant_products rp WHERE rp.vendor_id = v.id)`
+      );
+      result.deleted_vendors = del.rowCount ?? 0;
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err;
+    }
+
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listVendorSettings(limit = 500): Promise<VendorSettingsRow[]> {
   try {
     const res = await pool.query(

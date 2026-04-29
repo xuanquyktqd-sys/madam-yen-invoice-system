@@ -1309,7 +1309,35 @@ export default function DashboardPage() {
                   >
                     + Create vendor
                   </button>
-                  <div className="text-xs text-slate-500">Tip: If a vendor shows prices incl GST, enable it here.</div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = window.confirm(
+                          'Cleanup orphaned vendors, units, standards, and products?\n\nThis will permanently delete catalog rows that are not referenced by any invoice.'
+                        );
+                        if (!ok) return;
+                        try {
+                          const res = await fetch('/api/maintenance/cleanup-orphans', { method: 'POST' });
+                          const json = await res.json().catch(() => ({}));
+                          if (!res.ok) throw new Error(json.error ?? 'Cleanup failed');
+                          const r = json?.result ?? {};
+                          showToast(
+                            `Cleanup done: vendors ${r.deleted_vendors ?? 0}, products ${r.deleted_restaurant_products ?? 0}, units ${r.deleted_units ?? 0}, standards ${r.deleted_standards ?? 0}`,
+                            'success'
+                          );
+                          await fetchVendorSettings();
+                        } catch (err) {
+                          showToast((err as Error).message, 'error');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm border border-slate-700"
+                      title="Delete catalog rows not referenced by any invoice"
+                    >
+                      🧹 Cleanup orphans
+                    </button>
+                    <div className="text-xs text-slate-500">Tip: If a vendor shows prices incl GST, enable it here.</div>
+                  </div>
                 </div>
 
                 <div className="overflow-auto max-h-[60vh] border border-slate-800 rounded-xl">
