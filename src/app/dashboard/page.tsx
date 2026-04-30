@@ -295,6 +295,7 @@ export default function DashboardPage() {
   const autoRetryTriggeredRef = useRef(false);
   const activeJobsPollRef = useRef<number | null>(null);
   const previousActiveJobIdsRef = useRef<string[]>([]);
+  const lastHydratedInvoiceIdRef = useRef<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reviewMenuOpen, setReviewMenuOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -1036,22 +1037,21 @@ export default function DashboardPage() {
     }
   };
 
-  const startEdit = () => {
-    if (!selectedInvoice) return;
-    const isCredit = isCreditInvoice(selectedInvoice);
+  const hydrateEditStateFromInvoice = useCallback((invoice: Invoice) => {
+    const isCredit = isCreditInvoice(invoice);
     setEditForm({
-      vendor_name: selectedInvoice.vendor_name ?? '',
-      vendor_gst_number: selectedInvoice.vendor_gst_number ?? '',
-      invoice_number: selectedInvoice.invoice_number ?? '',
-      invoice_date: toDateInput(selectedInvoice.invoice_date ?? ''),
-      category: selectedInvoice.category ?? '',
-      sub_total: String(isCredit ? -Math.abs(selectedInvoice.sub_total ?? 0) : (selectedInvoice.sub_total ?? '')),
-      freight: String(isCredit ? -Math.abs(selectedInvoice.freight ?? 0) : (selectedInvoice.freight ?? '')),
-      gst_amount: String(isCredit ? -Math.abs(selectedInvoice.gst_amount ?? 0) : (selectedInvoice.gst_amount ?? '')),
-      total_amount: String(isCredit ? -Math.abs(selectedInvoice.total_amount ?? 0) : (selectedInvoice.total_amount ?? '')),
+      vendor_name: invoice.vendor_name ?? '',
+      vendor_gst_number: invoice.vendor_gst_number ?? '',
+      invoice_number: invoice.invoice_number ?? '',
+      invoice_date: toDateInput(invoice.invoice_date ?? ''),
+      category: invoice.category ?? '',
+      sub_total: String(isCredit ? -Math.abs(invoice.sub_total ?? 0) : (invoice.sub_total ?? '')),
+      freight: String(isCredit ? -Math.abs(invoice.freight ?? 0) : (invoice.freight ?? '')),
+      gst_amount: String(isCredit ? -Math.abs(invoice.gst_amount ?? 0) : (invoice.gst_amount ?? '')),
+      total_amount: String(isCredit ? -Math.abs(invoice.total_amount ?? 0) : (invoice.total_amount ?? '')),
     });
     setEditItems(
-      (selectedInvoice.invoice_items ?? []).map((it) => ({
+      (invoice.invoice_items ?? []).map((it) => ({
         product_code: it.product_code ?? '',
         description: it.description ?? '',
         quantity: String(isCredit ? Math.abs(it.quantity ?? 0) : (it.quantity ?? '')),
@@ -1062,7 +1062,17 @@ export default function DashboardPage() {
       }))
     );
     setEditMode(true);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedInvoice) {
+      lastHydratedInvoiceIdRef.current = null;
+      return;
+    }
+    if (lastHydratedInvoiceIdRef.current === selectedInvoice.id) return;
+    lastHydratedInvoiceIdRef.current = selectedInvoice.id;
+    hydrateEditStateFromInvoice(selectedInvoice);
+  }, [selectedInvoice, hydrateEditStateFromInvoice]);
 
   useEffect(() => {
     if (!editMode) return;
@@ -1087,6 +1097,7 @@ export default function DashboardPage() {
   const cancelEdit = () => {
     setEditMode(false);
     setEditItems([]);
+    lastHydratedInvoiceIdRef.current = null;
   };
 
   const openCreditNote = () => {
@@ -1241,9 +1252,12 @@ export default function DashboardPage() {
         throw new Error(json.error ?? 'Failed to save changes');
       }
       showToast('Changes saved', 'success');
-      setEditMode(false);
       await refreshAfterInvoiceMutation();
-      if (json.invoice) setSelectedInvoice(json.invoice);
+      if (json.invoice) {
+        setSelectedInvoice(json.invoice);
+        hydrateEditStateFromInvoice(json.invoice);
+        lastHydratedInvoiceIdRef.current = json.invoice.id;
+      }
     } catch (err) {
       showToast((err as Error).message, 'error');
     } finally {
@@ -2225,36 +2239,16 @@ export default function DashboardPage() {
                         </button>
                       </div>
                       <div className="p-3 space-y-2">
-                        {!editMode ? (
-                          <button
-                            onClick={() => { setReviewMenuOpen(false); startEdit(); }}
-                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
-                          >
-                            <span className="font-semibold">✏️ Edit</span>
-                            <span className="text-slate-400">→</span>
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              disabled={editSaving}
-                              onClick={() => { setReviewMenuOpen(false); saveEdit(); }}
-                              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 disabled:opacity-60"
-                            >
-                              <span className="font-semibold">{editSaving ? 'Saving...' : 'Save'}</span>
-                              <span className="text-emerald-100">→</span>
-                            </button>
-                            <button
-                              disabled={editSaving}
-                              onClick={() => { setReviewMenuOpen(false); cancelEdit(); }}
-                              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 disabled:opacity-60"
-                            >
-                              <span className="font-semibold">Cancel edit</span>
-                              <span className="text-slate-400">→</span>
-                            </button>
-                          </>
-                        )}
+                        <button
+                          disabled={editSaving}
+                          onClick={() => { setReviewMenuOpen(false); saveEdit(); }}
+                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 disabled:opacity-60"
+                        >
+                          <span className="font-semibold">{editSaving ? 'Saving...' : 'Save'}</span>
+                          <span className="text-emerald-100">→</span>
+                        </button>
 
-                        {!isSelectedCreditNote && !editMode && (
+                        {!isSelectedCreditNote && (
                           <button
                             onClick={() => { setReviewMenuOpen(false); openCreditNote(); }}
                             className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
@@ -2264,7 +2258,7 @@ export default function DashboardPage() {
                           </button>
                         )}
 
-                        {selectedInvoice.status === 'pending_review' && !editMode && (
+                        {selectedInvoice.status === 'pending_review' && (
                           <>
                             <button
                               onClick={() => { setReviewMenuOpen(false); updateStatus(selectedInvoice.id, 'approved'); }}
@@ -2283,15 +2277,15 @@ export default function DashboardPage() {
                           </>
                         )}
 
-                        {!editMode && (
-                          <button
-                            onClick={() => { setReviewMenuOpen(false); deleteInvoice(selectedInvoice.id); }}
-                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-600 text-slate-100 border border-slate-700"
-                          >
+	                        {(
+	                          <button
+	                            onClick={() => { setReviewMenuOpen(false); deleteInvoice(selectedInvoice.id); }}
+	                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-red-600 text-slate-100 border border-slate-700"
+	                          >
                             <span className="font-semibold">🗑️ Delete</span>
                             <span className="text-slate-400">→</span>
-                          </button>
-                        )}
+	                          </button>
+	                        )}
                       </div>
                     </div>
                   </div>
@@ -2349,79 +2343,50 @@ export default function DashboardPage() {
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
                           Invoice details
                         </h3>
-                        {!editMode ? (
-                          <div className="space-y-2 text-sm">
-                            {[
-                              ['Vendor', selectedInvoice.vendor_name],
-                              ['GST Number', selectedInvoice.vendor_gst_number ?? '—'],
-                              ['Invoice #', selectedInvoice.invoice_number ?? '—'],
-                              ['Date', formatDisplayDate(selectedInvoice.invoice_date)],
-                              ['Type', (() => {
-                                const isCredit = isSelectedCreditNote;
-                                if (isCredit) return 'Credit Note';
-                                if (selectedInvoice.is_tax_invoice) return 'Tax Invoice ✅';
-                                return 'Quote / Order';
-                              })()],
-                              ['Category', selectedInvoice.category ?? '—'],
-                            ].map(([label, value]) => (
-                              <div key={label} className="flex justify-between border-b border-slate-800 pb-2">
-                                <span className="text-slate-400">{label}</span>
-                                <span
-                                  className={`font-medium text-right max-w-[60%] ${
-                                    label === 'Type' && isSelectedCreditNote ? 'text-red-300' : 'text-white'
-                                  }`}
-                                >
-                                  {value}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                            <label>
-                              <div className="text-slate-400 mb-1">Vendor *</div>
-                              <input
-                                list="vendor-options"
-                                value={editForm.vendor_name}
-                                onChange={(e) => setEditForm((p) => ({ ...p, vendor_name: e.target.value }))}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                              />
-                            </label>
-                            <label>
-                              <div className="text-slate-400 mb-1">GST Number</div>
-                              <input
-                                value={editForm.vendor_gst_number}
-                                onChange={(e) => setEditForm((p) => ({ ...p, vendor_gst_number: e.target.value }))}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                              />
-                            </label>
-                            <label>
-                              <div className="text-slate-400 mb-1">Invoice number</div>
-                              <input
-                                value={editForm.invoice_number}
-                                onChange={(e) => setEditForm((p) => ({ ...p, invoice_number: e.target.value }))}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
-                              />
-                            </label>
-                            <label>
-                              <div className="text-slate-400 mb-1">Date *</div>
-                              <input
-                                type="date"
-                                value={editForm.invoice_date}
-                                onChange={(e) => setEditForm((p) => ({ ...p, invoice_date: e.target.value }))}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                              />
-                            </label>
-                            <label className="sm:col-span-2">
-                              <div className="text-slate-400 mb-1">Category</div>
-                              <input
-                                value={editForm.category}
-                                onChange={(e) => setEditForm((p) => ({ ...p, category: e.target.value }))}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                              />
-                            </label>
-                          </div>
-                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                          <label>
+                            <div className="text-slate-400 mb-1">Vendor *</div>
+                            <input
+                              list="vendor-options"
+                              value={editForm.vendor_name}
+                              onChange={(e) => setEditForm((p) => ({ ...p, vendor_name: e.target.value }))}
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                            />
+                          </label>
+                          <label>
+                            <div className="text-slate-400 mb-1">GST Number</div>
+                            <input
+                              value={editForm.vendor_gst_number}
+                              onChange={(e) => setEditForm((p) => ({ ...p, vendor_gst_number: e.target.value }))}
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                            />
+                          </label>
+                          <label>
+                            <div className="text-slate-400 mb-1">Invoice number</div>
+                            <input
+                              value={editForm.invoice_number}
+                              onChange={(e) => setEditForm((p) => ({ ...p, invoice_number: e.target.value }))}
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
+                            />
+                          </label>
+                          <label>
+                            <div className="text-slate-400 mb-1">Date *</div>
+                            <input
+                              type="date"
+                              value={editForm.invoice_date}
+                              onChange={(e) => setEditForm((p) => ({ ...p, invoice_date: e.target.value }))}
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                            />
+                          </label>
+                          <label className="sm:col-span-2">
+                            <div className="text-slate-400 mb-1">Category</div>
+                            <input
+                              value={editForm.category}
+                              onChange={(e) => setEditForm((p) => ({ ...p, category: e.target.value }))}
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                            />
+                          </label>
+                        </div>
                       </section>
 
                       {/* Line items */}
@@ -2429,38 +2394,7 @@ export default function DashboardPage() {
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
                           Line items ({selectedInvoice.invoice_items?.length ?? 0})
                         </h3>
-                        {!editMode ? (
-                          <div className="space-y-2">
-                            {selectedInvoice.invoice_items?.map((item, idx) => (
-                              <div key={item.id ?? idx} className="bg-slate-800 rounded-xl p-3 text-sm">
-                                {(() => {
-                                  const isCredit = isSelectedCreditNote;
-                                  const amount = isCredit ? -Math.abs(item.amount_excl_gst) : item.amount_excl_gst;
-                                  const qty = isCredit ? Math.abs(item.quantity) : item.quantity;
-                                  const price = isCredit ? Math.abs(item.price) : item.price;
-                                  return (
-                                    <>
-                                      <div className="flex justify-between gap-2 mb-1">
-                                        <span className="text-white font-medium leading-tight flex-1">
-                                          {item.description}{item.standard ? ` · ${item.standard}` : ''}
-                                        </span>
-                                        <span className={`${isCredit ? 'text-red-400' : 'text-emerald-400'} font-mono font-bold whitespace-nowrap`}>
-                                          {formatNZD(amount)}
-                                        </span>
-                                      </div>
-                                      <div className="flex gap-4 text-xs text-slate-400">
-                                        {item.product_code && <span className="font-mono">{item.product_code}</span>}
-                                        <span>SL: <span className="text-slate-200">{qty} {item.unit}</span></span>
-                                        <span>Unit price: <span className="text-slate-200">{formatNZD(price)}</span></span>
-                                      </div>
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="bg-slate-800 rounded-xl p-4 space-y-3">
+                        <div className="bg-slate-800 rounded-xl p-4 space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="text-sm font-semibold text-slate-200">
                                 Edit items <span className="text-xs text-slate-500 font-normal">(tap text to edit)</span>
@@ -2579,7 +2513,6 @@ export default function DashboardPage() {
                               ))}
                             </div>
                           </div>
-                        )}
                       </section>
 
                       {/* Totals */}
@@ -2587,57 +2520,26 @@ export default function DashboardPage() {
                         <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">
                           Summary
                         </h3>
-                        {!editMode ? (
-                          <>
-                            {(() => {
-                              const isCredit = isSelectedCreditNote;
-                              const sub = isCredit ? -Math.abs(selectedInvoice.sub_total) : selectedInvoice.sub_total;
-                              const freight = isCredit ? -Math.abs(selectedInvoice.freight ?? 0) : (selectedInvoice.freight ?? 0);
-                              const gst = isCredit ? -Math.abs(selectedInvoice.gst_amount) : selectedInvoice.gst_amount;
-                              return (
-                                <>
-                                  {[
-                                    ['Subtotal', formatNZD(sub)],
-                                    ['Freight', formatNZD(freight)],
-                                    ['GST (15%)', formatNZD(gst)],
-                                  ].map(([label, value]) => (
-                                    <div key={label} className="flex justify-between text-slate-300">
-                                      <span>{label}</span>
-                                      <span className={`font-mono ${isCredit ? 'text-red-300' : ''}`}>{value}</span>
-                                    </div>
-                                  ))}
-                                </>
-                              );
-                            })()}
-                            <div className="flex justify-between text-white font-bold text-base border-t border-slate-700 pt-2 mt-2">
-                              <span>TOTAL (NZD)</span>
-                              <span className={`font-mono ${isSelectedCreditNote ? 'text-red-400' : 'text-emerald-400'}`}>
-                                {formatNZD(isSelectedCreditNote ? -Math.abs(selectedInvoice.total_amount) : selectedInvoice.total_amount)}
-                              </span>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            {([
-                              ['Subtotal', 'sub_total'],
-                              ['Freight', 'freight'],
-                              ['GST', 'gst_amount'],
-                              ['Total', 'total_amount'],
-                            ] as Array<[string, MoneyFieldKey]>).map(([label, key]) => (
-                              <label key={key} className="text-sm">
-                                <div className="text-slate-400 mb-1">{label}</div>
-                                <input
-                                  inputMode="decimal"
-                                  value={editForm[key]}
-                                  onChange={(e) => setEditForm((p) => ({ ...p, [key]: e.target.value }))}
-                                  readOnly={key !== 'freight'}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
-                                  placeholder="0.00"
-                                />
-                              </label>
-                            ))}
-                          </div>
-                        )}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {([
+                            ['Subtotal', 'sub_total'],
+                            ['Freight', 'freight'],
+                            ['GST', 'gst_amount'],
+                            ['Total', 'total_amount'],
+                          ] as Array<[string, MoneyFieldKey]>).map(([label, key]) => (
+                            <label key={key} className="text-sm">
+                              <div className="text-slate-400 mb-1">{label}</div>
+                              <input
+                                inputMode="decimal"
+                                value={editForm[key]}
+                                onChange={(e) => setEditForm((p) => ({ ...p, [key]: e.target.value }))}
+                                readOnly={key !== 'freight'}
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-100 font-mono"
+                                placeholder="0.00"
+                              />
+                            </label>
+                          ))}
+                        </div>
                       </section>
 
                       {/* Status action (mobile) */}
