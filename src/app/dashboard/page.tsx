@@ -241,6 +241,12 @@ const removeSessionCacheByPrefix = (prefix: string) => {
 const makeParamCacheKey = (prefix: string, params: URLSearchParams) =>
   `${prefix}${params.toString() || 'all'}`;
 
+const normalizeVendorName = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
 // ─── Dashboard Page ──────────────────────────────────────────────────────────
 export default function DashboardPage() {
   type MoneyFieldKey = 'sub_total' | 'freight' | 'gst_amount' | 'total_amount';
@@ -696,6 +702,11 @@ export default function DashboardPage() {
     if (!vendorSettingsOpen) return;
     void fetchVendorSettings();
   }, [vendorSettingsOpen, fetchVendorSettings]);
+
+  // Keep vendor suggestions loaded for mapping in invoice modal (cached by sessionStorage).
+  useEffect(() => {
+    void fetchVendorSettings();
+  }, [fetchVendorSettings]);
 
   useEffect(() => {
     if (!manualOpen) return;
@@ -1185,6 +1196,13 @@ export default function DashboardPage() {
       return;
     }
 
+    const normalizedVendor = normalizeVendorName(editForm.vendor_name);
+    const matchedVendor = vendorSettings.find((v) => normalizeVendorName(v.name) === normalizedVendor);
+    if (!matchedVendor) {
+      showToast('Vendor is not mapped. Please select an existing vendor from the dropdown.', 'warn');
+      return;
+    }
+
     const isCredit = isCreditInvoice(selectedInvoice);
 
     const normalizedEditItems = editItems
@@ -1308,8 +1326,8 @@ export default function DashboardPage() {
       )}
 
       <datalist id="vendor-options">
-        {vendorOptions.map((v) => (
-          <option key={v} value={v} />
+        {vendorSettings.map((v) => (
+          <option key={v.id} value={v.name} />
         ))}
       </datalist>
       <datalist id="unit-options">
