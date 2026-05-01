@@ -29,15 +29,15 @@ type Invoice = {
   gst_amount: number;
   total_amount: number;
   image_url: string | null;
-  status: 'pending_review' | 'approved' | 'rejected';
+  status: 'pending_review' | 'approved' | 'rejected' | 'paid';
   category: string | null;
   parent_invoice_id?: string | null;
   invoice_items: InvoiceItem[];
 };
 
 type UploadStep = 'idle' | 'preview' | 'confirming' | 'processing' | 'done' | 'error';
-type FilterStatus = 'all' | 'pending_review' | 'approved' | 'rejected';
-type DatePreset = 'all' | 'day' | 'month' | 'custom';
+type FilterStatus = 'all' | 'pending_review' | 'approved' | 'rejected' | 'paid';
+type DatePreset = 'all' | 'day' | 'week' | 'month' | 'last_month' | 'custom';
 type DashboardView = 'list' | 'report';
 
 type ReportVendorSummary = {
@@ -182,6 +182,7 @@ const statusConfig = {
   pending_review: { label: 'Pending', bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-400' },
   approved: { label: 'Approved', bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-400' },
   rejected: { label: 'Rejected', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-400' },
+  paid: { label: 'Paid', bg: 'bg-sky-100', text: 'text-sky-700', dot: 'bg-sky-400' },
 };
 
 const safeReadJson = async (res: Response): Promise<{ json: unknown; text: string }> => {
@@ -268,7 +269,7 @@ export default function DashboardPage() {
   const [dashboardView, setDashboardView] = useState<DashboardView>('list');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
-  const [datePreset, setDatePreset] = useState<DatePreset>('all');
+  const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [customFrom, setCustomFrom] = useState<string>(formatYmdLocal(new Date()));
@@ -320,6 +321,8 @@ export default function DashboardPage() {
   const [cleanupOldImagesMonthsText, setCleanupOldImagesMonthsText] = useState('3');
   const [cleanupOldImagesIncludeJobs, setCleanupOldImagesIncludeJobs] = useState(false);
   const [cleanupOldImagesBusy, setCleanupOldImagesBusy] = useState(false);
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
   const [manualProductOptions, setManualProductOptions] = useState<Array<{
     name: string;
     vendor_product_code: string | null;
@@ -425,6 +428,26 @@ export default function DashboardPage() {
       return;
     }
 
+    if (preset === 'week') {
+      const day = today.getDay(); // 0=Sun
+      const diffToMonday = (day + 6) % 7;
+      const start = new Date(today);
+      start.setDate(today.getDate() - diffToMonday);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      setDateFrom(formatYmdLocal(start));
+      setDateTo(formatYmdLocal(end));
+      return;
+    }
+
+    if (preset === 'last_month') {
+      const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const end = new Date(today.getFullYear(), today.getMonth(), 0);
+      setDateFrom(formatYmdLocal(start));
+      setDateTo(formatYmdLocal(end));
+      return;
+    }
+
     // month
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
     const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
@@ -452,8 +475,10 @@ export default function DashboardPage() {
     if (search) params.set('search', search);
     if (dateFrom) params.set('from', dateFrom);
     if (dateTo) params.set('to', dateTo);
+    params.set('page', String(page));
+    params.set('limit', String(PAGE_SIZE));
     return params;
-  }, [filterStatus, search, dateFrom, dateTo]);
+  }, [filterStatus, search, dateFrom, dateTo, page]);
 
   const buildReportParams = useCallback(() => {
     const params = new URLSearchParams();
@@ -501,6 +526,18 @@ export default function DashboardPage() {
       setLoading(false);
     }
   }, [buildInvoiceParams]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  useEffect(() => {
+    // Default: this week
+    applyDatePreset('week');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterStatus, dateFrom, dateTo]);
 
   const fetchInvoiceById = useCallback(async (id: string): Promise<Invoice | null> => {
     const res = await fetch(`/api/invoices?id=${encodeURIComponent(id)}`);
@@ -935,6 +972,25 @@ export default function DashboardPage() {
 
     const json = await res.json().catch(() => ({}));
     showToast(json.error ?? 'Failed to update status', 'error');
+  };
+
+  const markPaid = async (id: string) => {
+    const res = await fetch('/api/invoices', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status: 'paid' }),
+    });
+    if (res.ok) {
+      showToast('Marked as paid', 'success');
+      await refreshAfterInvoiceMutation();
+      if (selectedInvoice?.id === id) {
+        setSelectedInvoice((prev) => prev ? { ...prev, status: 'paid' } : prev);
+      }
+      return;
+    }
+
+    const json = await res.json().catch(() => ({}));
+    showToast(json.error ?? 'Failed to mark paid', 'error');
   };
 
   // ── Delete invoice ─────────────────────────────────────────────────────────
@@ -2442,6 +2498,16 @@ export default function DashboardPage() {
                           </>
                         )}
 
+                        {selectedInvoice.status === 'approved' && (
+                          <button
+                            onClick={() => { setReviewMenuOpen(false); markPaid(selectedInvoice.id); }}
+                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white border border-sky-500"
+                          >
+                            <span className="font-semibold">💳 Mark as paid</span>
+                            <span className="text-sky-100">→</span>
+                          </button>
+                        )}
+
 	                        {(
 	                          <button
 	                            onClick={() => { setReviewMenuOpen(false); deleteInvoice(selectedInvoice.id); }}
@@ -2968,7 +3034,7 @@ export default function DashboardPage() {
               </div>
             )}
             <div className="flex gap-2">
-              {(['all', 'pending_review', 'approved', 'rejected'] as FilterStatus[]).map((s) => (
+              {(['all', 'pending_review', 'approved', 'rejected', 'paid'] as FilterStatus[]).map((s) => (
                 <button
                   key={s}
                   onClick={() => setFilterStatus(s)}
@@ -2985,9 +3051,11 @@ export default function DashboardPage() {
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <div className="flex flex-wrap gap-2">
               {([
+                { key: 'week', label: 'This week' },
                 { key: 'all', label: 'All time' },
                 { key: 'day', label: 'Today' },
                 { key: 'month', label: 'This month' },
+                { key: 'last_month', label: 'Last month' },
                 { key: 'custom', label: 'Custom' },
               ] as Array<{ key: DatePreset; label: string }>).map((p) => (
                 <button
@@ -3154,6 +3222,41 @@ export default function DashboardPage() {
                   </button>
 	                );
 	              })}
+            </div>
+
+            {/* Pagination (top-10 only) */}
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                Page <span className="font-mono text-slate-300">{page}</span> /{' '}
+                <span className="font-mono text-slate-300">{totalPages}</span> ·{' '}
+                <span className="font-mono text-slate-300">{totalCount}</span> invoices
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                    page <= 1
+                      ? 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+                  }`}
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                    page >= totalPages
+                      ? 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+                  }`}
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </>
           )

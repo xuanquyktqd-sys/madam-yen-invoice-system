@@ -151,7 +151,7 @@ export type ManualInvoiceInput = {
   freight?: number | string | null;
   gst_amount?: number | string | null;
   total_amount: number | string;
-  status?: 'pending_review' | 'approved' | 'rejected';
+  status?: 'pending_review' | 'approved' | 'rejected' | 'paid';
   invoice_items?: ManualInvoiceItemInput[];
   image_url?: string | null;
 };
