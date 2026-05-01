@@ -308,13 +308,17 @@ export default function DashboardPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [vendorOptions, setVendorOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
-  const [vendorSettingsOpen, setVendorSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'vendors' | 'maintenance'>('vendors');
   const [vendorSettings, setVendorSettings] = useState<VendorSetting[]>([]);
   const [vendorSettingsLoading, setVendorSettingsLoading] = useState(false);
   const [vendorSettingsSavingId, setVendorSettingsSavingId] = useState<string | null>(null);
   const [vendorCreateOpen, setVendorCreateOpen] = useState(false);
   const [vendorCreateForm, setVendorCreateForm] = useState({ name: '', gst_number: '', address: '', prices_include_gst: false });
   const [vendorCreateSaving, setVendorCreateSaving] = useState(false);
+  const [cleanupOldImagesMonths, setCleanupOldImagesMonths] = useState(3);
+  const [cleanupOldImagesIncludeJobs, setCleanupOldImagesIncludeJobs] = useState(false);
+  const [cleanupOldImagesBusy, setCleanupOldImagesBusy] = useState(false);
   const [manualProductOptions, setManualProductOptions] = useState<Array<{
     name: string;
     vendor_product_code: string | null;
@@ -699,9 +703,10 @@ export default function DashboardPage() {
   }, [setCachedVendorSettings]);
 
   useEffect(() => {
-    if (!vendorSettingsOpen) return;
+    if (!settingsOpen) return;
+    if (settingsTab !== 'vendors') return;
     void fetchVendorSettings();
-  }, [vendorSettingsOpen, fetchVendorSettings]);
+  }, [settingsOpen, settingsTab, fetchVendorSettings]);
 
   // Keep vendor suggestions loaded for mapping in invoice modal (cached by sessionStorage).
   useEffect(() => {
@@ -1402,11 +1407,11 @@ export default function DashboardPage() {
             </button>
             <button
               type="button"
-              onClick={() => setVendorSettingsOpen(true)}
+              onClick={() => { setSettingsTab('vendors'); setSettingsOpen(true); }}
               className="hidden sm:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border border-slate-700"
-              title="Vendor settings"
+              title="Settings"
             >
-              🏷️ Vendors
+              ⚙️ Settings
             </button>
 
             {/* Mobile hamburger */}
@@ -1460,10 +1465,10 @@ export default function DashboardPage() {
                 <span className="text-slate-400">→</span>
               </button>
               <button
-                onClick={() => { setMobileMenuOpen(false); setVendorSettingsOpen(true); }}
+                onClick={() => { setMobileMenuOpen(false); setSettingsTab('vendors'); setSettingsOpen(true); }}
                 className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
               >
-                <span className="font-semibold">🏷️ Vendor settings</span>
+                <span className="font-semibold">⚙️ Settings</span>
                 <span className="text-slate-400">→</span>
               </button>
             </div>
@@ -1472,16 +1477,16 @@ export default function DashboardPage() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* ── Vendor Settings Modal ───────────────────────────────────────── */}
-        {vendorSettingsOpen && (
+        {/* ── Settings Modal ─────────────────────────────────────────────── */}
+        {settingsOpen && (
           <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 rounded-2xl w-full max-w-3xl border border-slate-700 shadow-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
                 <div>
-                  <h2 className="font-bold text-white text-lg">Vendor settings</h2>
-                  <p className="text-xs text-slate-400 mt-1">Configure vendor GST mode. Default is ex-GST.</p>
+                  <h2 className="font-bold text-white text-lg">Settings</h2>
+                  <p className="text-xs text-slate-400 mt-1">Vendors, maintenance, and other configurations.</p>
                 </div>
-                <button onClick={() => setVendorSettingsOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                <button onClick={() => setSettingsOpen(false)} className="text-slate-400 hover:text-white transition-colors">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -1489,147 +1494,268 @@ export default function DashboardPage() {
               </div>
 
               <div className="p-6">
-                <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2 mb-5">
                   <button
                     type="button"
-                    onClick={() => setVendorCreateOpen(true)}
-                    className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm border border-emerald-500"
+                    onClick={() => setSettingsTab('vendors')}
+                    className={`px-3 py-2 rounded-xl text-sm font-semibold border ${
+                      settingsTab === 'vendors'
+                        ? 'bg-emerald-600 border-emerald-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                    }`}
                   >
-                    + Create vendor
+                    Vendors
                   </button>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const ok = window.confirm(
-                          'Cleanup orphaned vendors, units, standards, and products?\n\nThis will permanently delete catalog rows that are not referenced by any invoice.'
-                        );
-                        if (!ok) return;
-                        try {
-                          const res = await fetch('/api/maintenance/cleanup-orphans', { method: 'POST' });
-                          const json = await res.json().catch(() => ({}));
-                          if (!res.ok) throw new Error(json.error ?? 'Cleanup failed');
-                          const r = json?.result ?? {};
-                          showToast(
-                            `Cleanup done: vendors ${r.deleted_vendors ?? 0}, products ${r.deleted_restaurant_products ?? 0}, units ${r.deleted_units ?? 0}, standards ${r.deleted_standards ?? 0}`,
-                            'success'
-                          );
-                          removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
-                          removeSessionCache(CATALOG_VENDORS_CACHE_KEY);
-                          removeSessionCache(CATALOG_UNITS_CACHE_KEY);
-                          setVendorOptions([]);
-                          setUnitOptions([]);
-                          await fetchVendorSettings({ force: true });
-                        } catch (err) {
-                          showToast((err as Error).message, 'error');
-                        }
-                      }}
-                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm border border-slate-700"
-                      title="Delete catalog rows not referenced by any invoice"
-                    >
-                      🧹 Cleanup orphans
-                    </button>
-                    <div className="text-xs text-slate-500">Tip: If a vendor shows prices incl GST, enable it here.</div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsTab('maintenance')}
+                    className={`px-3 py-2 rounded-xl text-sm font-semibold border ${
+                      settingsTab === 'maintenance'
+                        ? 'bg-emerald-600 border-emerald-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                    }`}
+                  >
+                    Maintenance
+                  </button>
                 </div>
 
-                <div className="overflow-auto max-h-[60vh] border border-slate-800 rounded-xl">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-slate-900 border-b border-slate-800">
-                      <tr className="text-slate-400">
-                        <th className="px-4 py-3 text-left font-semibold">Vendor</th>
-                        <th className="px-4 py-3 text-left font-semibold">GST #</th>
-                        <th className="px-4 py-3 text-right font-semibold">Prices include GST</th>
-                        <th className="px-4 py-3 text-right font-semibold">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {vendorSettingsLoading ? (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-6 text-slate-400">Loading…</td>
-                        </tr>
-                      ) : vendorSettings.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-6 text-slate-400">No vendors found.</td>
-                        </tr>
-                      ) : (
-                        vendorSettings.map((v) => (
-                          <tr key={v.id} className="border-t border-slate-800">
-                            <td className="px-4 py-3 text-slate-100 font-medium">{v.name}</td>
-                            <td className="px-4 py-3 text-slate-300 font-mono text-xs">{v.gst_number ?? '—'}</td>
-                            <td className="px-4 py-3 text-right">
-                              <button
-                                type="button"
-                                disabled={vendorSettingsSavingId === v.id}
-                                onClick={async () => {
-                                  setVendorSettingsSavingId(v.id);
-                                  try {
-                                    const res = await fetch('/api/vendor-settings', {
-                                      method: 'PATCH',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ vendor_id: v.id, prices_include_gst: !v.prices_include_gst }),
-                                    });
-                                    const json = await res.json().catch(() => ({}));
-                                    if (!res.ok) throw new Error(json.error ?? 'Failed to update vendor');
-                                    setCachedVendorSettings((prev) => prev.map((x) => x.id === v.id ? { ...x, prices_include_gst: !x.prices_include_gst } : x));
-                                  } catch (err) {
-                                    showToast((err as Error).message, 'error');
-                                  } finally {
-                                    setVendorSettingsSavingId(null);
-                                  }
-                                }}
-                                className={`inline-flex items-center justify-center px-3 py-1.5 rounded-lg border text-xs font-bold ${
-                                  v.prices_include_gst
-                                    ? 'bg-emerald-700/30 border-emerald-700 text-emerald-200'
-                                    : 'bg-slate-800 border-slate-700 text-slate-200'
-                                } ${vendorSettingsSavingId === v.id ? 'opacity-60' : ''}`}
-                                title="Toggle GST mode"
-                              >
-                                {v.prices_include_gst ? 'ON' : 'OFF'}
-                              </button>
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  const ok = window.confirm(`Delete vendor "${v.name}"? This cannot be undone.`);
-                                  if (!ok) return;
-                                  try {
-                                    const res = await fetch('/api/vendor-settings', {
-                                      method: 'DELETE',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ vendor_id: v.id }),
-                                    });
-                                    const json = await res.json().catch(() => ({}));
-                                    if (!res.ok) throw new Error(json.error ?? 'Failed to delete vendor');
-                                    setCachedVendorSettings((prev) => prev.filter((x) => x.id !== v.id));
-                                    setVendorOptions((prev) => {
-                                      const next = prev.filter((name) => name !== v.name);
-                                      writeSessionCache(CATALOG_VENDORS_CACHE_KEY, next);
-                                      return next;
-                                    });
-                                    showToast('Vendor deleted', 'success');
-                                  } catch (err) {
-                                    showToast((err as Error).message, 'error');
-                                  }
-                                }}
-                                className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold hover:bg-red-600 hover:border-red-600"
-                              >
-                                Delete
-                              </button>
-                            </td>
+                {settingsTab === 'vendors' && (
+                  <>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <button
+                        type="button"
+                        onClick={() => setVendorCreateOpen(true)}
+                        className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm border border-emerald-500"
+                      >
+                        + Create vendor
+                      </button>
+                      <div className="text-xs text-slate-500">Tip: If a vendor shows prices incl GST, enable it here.</div>
+                    </div>
+
+                    <div className="overflow-auto max-h-[60vh] border border-slate-800 rounded-xl">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-slate-900 border-b border-slate-800">
+                          <tr className="text-slate-400">
+                            <th className="px-4 py-3 text-left font-semibold">Vendor</th>
+                            <th className="px-4 py-3 text-left font-semibold">GST #</th>
+                            <th className="px-4 py-3 text-right font-semibold">Prices include GST</th>
+                            <th className="px-4 py-3 text-right font-semibold">Actions</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {vendorSettingsLoading ? (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-slate-400">Loading…</td>
+                            </tr>
+                          ) : vendorSettings.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-slate-400">No vendors found.</td>
+                            </tr>
+                          ) : (
+                            vendorSettings.map((v) => (
+                              <tr key={v.id} className="border-t border-slate-800">
+                                <td className="px-4 py-3 text-slate-100 font-medium">{v.name}</td>
+                                <td className="px-4 py-3 text-slate-300 font-mono text-xs">{v.gst_number ?? '—'}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    type="button"
+                                    disabled={vendorSettingsSavingId === v.id}
+                                    onClick={async () => {
+                                      setVendorSettingsSavingId(v.id);
+                                      try {
+                                        const res = await fetch('/api/vendor-settings', {
+                                          method: 'PATCH',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ vendor_id: v.id, prices_include_gst: !v.prices_include_gst }),
+                                        });
+                                        const json = await res.json().catch(() => ({}));
+                                        if (!res.ok) throw new Error(json.error ?? 'Failed to update vendor');
+                                        setCachedVendorSettings((prev) => prev.map((x) => x.id === v.id ? { ...x, prices_include_gst: !x.prices_include_gst } : x));
+                                      } catch (err) {
+                                        showToast((err as Error).message, 'error');
+                                      } finally {
+                                        setVendorSettingsSavingId(null);
+                                      }
+                                    }}
+                                    className={`inline-flex items-center justify-center px-3 py-1.5 rounded-lg border text-xs font-bold ${
+                                      v.prices_include_gst
+                                        ? 'bg-emerald-700/30 border-emerald-700 text-emerald-200'
+                                        : 'bg-slate-800 border-slate-700 text-slate-200'
+                                    } ${vendorSettingsSavingId === v.id ? 'opacity-60' : ''}`}
+                                    title="Toggle GST mode"
+                                  >
+                                    {v.prices_include_gst ? 'ON' : 'OFF'}
+                                  </button>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const ok = window.confirm(`Delete vendor "${v.name}"? This cannot be undone.`);
+                                      if (!ok) return;
+                                      try {
+                                        const res = await fetch('/api/vendor-settings', {
+                                          method: 'DELETE',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ vendor_id: v.id }),
+                                        });
+                                        const json = await res.json().catch(() => ({}));
+                                        if (!res.ok) throw new Error(json.error ?? 'Failed to delete vendor');
+                                        setCachedVendorSettings((prev) => prev.filter((x) => x.id !== v.id));
+                                        setVendorOptions((prev) => {
+                                          const next = prev.filter((name) => name !== v.name);
+                                          writeSessionCache(CATALOG_VENDORS_CACHE_KEY, next);
+                                          return next;
+                                        });
+                                        showToast('Vendor deleted', 'success');
+                                      } catch (err) {
+                                        showToast((err as Error).message, 'error');
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold hover:bg-red-600 hover:border-red-600"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+
+                {settingsTab === 'maintenance' && (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">
+                      <div className="text-white font-semibold mb-1">Cleanup orphan catalog</div>
+                      <div className="text-xs text-slate-400 mb-3">Deletes vendors/products/units/standards not referenced by any invoice.</div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = window.confirm(
+                            'Cleanup orphaned vendors, units, standards, and products?\n\nThis will permanently delete catalog rows that are not referenced by any invoice.'
+                          );
+                          if (!ok) return;
+                          try {
+                            const res = await fetch('/api/maintenance/cleanup-orphans', { method: 'POST' });
+                            const json = await res.json().catch(() => ({}));
+                            if (!res.ok) throw new Error(json.error ?? 'Cleanup failed');
+                            const r = json?.result ?? {};
+                            showToast(
+                              `Cleanup done: vendors ${r.deleted_vendors ?? 0}, products ${r.deleted_restaurant_products ?? 0}, units ${r.deleted_units ?? 0}, standards ${r.deleted_standards ?? 0}`,
+                              'success'
+                            );
+                            removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
+                            removeSessionCache(CATALOG_VENDORS_CACHE_KEY);
+                            removeSessionCache(CATALOG_UNITS_CACHE_KEY);
+                            setVendorOptions([]);
+                            setUnitOptions([]);
+                            await fetchVendorSettings({ force: true });
+                          } catch (err) {
+                            showToast((err as Error).message, 'error');
+                          }
+                        }}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm border border-slate-700"
+                      >
+                        🧹 Cleanup orphans
+                      </button>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">
+                      <div className="text-white font-semibold mb-1">Delete old images</div>
+                      <div className="text-xs text-slate-400 mb-3">Deletes Storage files under `YYYY/MM/` older than N months. Uses Storage API (service role).</div>
+
+                      <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                        <label className="text-sm">
+                          <div className="text-slate-400 mb-1">Older than (months)</div>
+                          <input
+                            inputMode="numeric"
+                            value={String(cleanupOldImagesMonths)}
+                            onChange={(e) => setCleanupOldImagesMonths(Math.max(1, Math.min(60, Number(e.target.value || '3'))))}
+                            className="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                          />
+                        </label>
+                        <label className="text-sm flex items-center gap-2 select-none pb-1">
+                          <input
+                            type="checkbox"
+                            checked={cleanupOldImagesIncludeJobs}
+                            onChange={(e) => setCleanupOldImagesIncludeJobs(e.target.checked)}
+                          />
+                          <span className="text-slate-200">Include OCR job previews</span>
+                        </label>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={cleanupOldImagesBusy}
+                            onClick={async () => {
+                              setCleanupOldImagesBusy(true);
+                              try {
+                                const res = await fetch('/api/maintenance/cleanup-old-images', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    olderThanMonths: cleanupOldImagesMonths,
+                                    dryRun: true,
+                                    includeOcrJobImages: cleanupOldImagesIncludeJobs,
+                                  }),
+                                });
+                                const json = await res.json().catch(() => ({}));
+                                if (!res.ok) throw new Error(json.error ?? 'Dry-run failed');
+                                showToast(`Dry-run: ${json.totalPlanned ?? 0} files planned`, 'success');
+                              } catch (err) {
+                                showToast((err as Error).message, 'error');
+                              } finally {
+                                setCleanupOldImagesBusy(false);
+                              }
+                            }}
+                            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm border border-slate-700 disabled:opacity-60"
+                          >
+                            Dry run
+                          </button>
+                          <button
+                            type="button"
+                            disabled={cleanupOldImagesBusy}
+                            onClick={async () => {
+                              const ok = window.confirm(`Delete images older than ${cleanupOldImagesMonths} months? This cannot be undone.`);
+                              if (!ok) return;
+                              setCleanupOldImagesBusy(true);
+                              try {
+                                const res = await fetch('/api/maintenance/cleanup-old-images', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    olderThanMonths: cleanupOldImagesMonths,
+                                    dryRun: false,
+                                    includeOcrJobImages: cleanupOldImagesIncludeJobs,
+                                  }),
+                                });
+                                const json = await res.json().catch(() => ({}));
+                                if (!res.ok) throw new Error(json.error ?? 'Cleanup failed');
+                                showToast(`Deleted: ${json.totalDeleted ?? 0} files`, 'success');
+                              } catch (err) {
+                                showToast((err as Error).message, 'error');
+                              } finally {
+                                setCleanupOldImagesBusy(false);
+                              }
+                            }}
+                            className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm border border-red-500 disabled:opacity-60"
+                          >
+                            Delete now
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {vendorSettingsOpen && vendorCreateOpen && (
+        {settingsOpen && vendorCreateOpen && (
           <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 rounded-2xl w-full max-w-lg border border-slate-700 shadow-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
