@@ -317,6 +317,7 @@ export default function DashboardPage() {
   const [vendorCreateForm, setVendorCreateForm] = useState({ name: '', gst_number: '', address: '', prices_include_gst: false });
   const [vendorCreateSaving, setVendorCreateSaving] = useState(false);
   const [cleanupOldImagesMonths, setCleanupOldImagesMonths] = useState(3);
+  const [cleanupOldImagesMonthsText, setCleanupOldImagesMonthsText] = useState('3');
   const [cleanupOldImagesIncludeJobs, setCleanupOldImagesIncludeJobs] = useState(false);
   const [cleanupOldImagesBusy, setCleanupOldImagesBusy] = useState(false);
   const [manualProductOptions, setManualProductOptions] = useState<Array<{
@@ -1323,7 +1324,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
       {/* ── Toast ─────────────────────────────────────────────────────────── */}
       {toastMsg && (
-        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-2xl text-sm font-medium animate-fade-in
+        <div className={`fixed top-4 right-4 z-[100] px-5 py-3 rounded-xl shadow-2xl text-sm font-medium animate-fade-in
           ${toastMsg.type === 'success' ? 'bg-emerald-600' :
             toastMsg.type === 'error'   ? 'bg-red-600' : 'bg-amber-500'}`}>
           {toastMsg.text}
@@ -1671,9 +1672,20 @@ export default function DashboardPage() {
                         <label className="text-sm">
                           <div className="text-slate-400 mb-1">Older than (months)</div>
                           <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            step={1}
                             inputMode="numeric"
-                            value={String(cleanupOldImagesMonths)}
-                            onChange={(e) => setCleanupOldImagesMonths(Math.max(1, Math.min(60, Number(e.target.value || '3'))))}
+                            value={cleanupOldImagesMonthsText}
+                            onChange={(e) => setCleanupOldImagesMonthsText(e.target.value)}
+                            onBlur={() => {
+                              const raw = cleanupOldImagesMonthsText.trim();
+                              const parsed = raw ? Number(raw) : cleanupOldImagesMonths;
+                              const next = Math.max(1, Math.min(60, Number.isFinite(parsed) ? Math.floor(parsed) : cleanupOldImagesMonths));
+                              setCleanupOldImagesMonths(next);
+                              setCleanupOldImagesMonthsText(String(next));
+                            }}
                             className="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
                           />
                         </label>
@@ -1697,7 +1709,11 @@ export default function DashboardPage() {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({
-                                    olderThanMonths: cleanupOldImagesMonths,
+                            olderThanMonths: (() => {
+                              const raw = cleanupOldImagesMonthsText.trim();
+                              const parsed = raw ? Number(raw) : cleanupOldImagesMonths;
+                              return Math.max(1, Math.min(60, Number.isFinite(parsed) ? Math.floor(parsed) : cleanupOldImagesMonths));
+                            })(),
                                     dryRun: true,
                                     includeOcrJobImages: cleanupOldImagesIncludeJobs,
                                   }),
@@ -1719,7 +1735,12 @@ export default function DashboardPage() {
                             type="button"
                             disabled={cleanupOldImagesBusy}
                             onClick={async () => {
-                              const ok = window.confirm(`Delete images older than ${cleanupOldImagesMonths} months? This cannot be undone.`);
+                              const months = (() => {
+                                const raw = cleanupOldImagesMonthsText.trim();
+                                const parsed = raw ? Number(raw) : cleanupOldImagesMonths;
+                                return Math.max(1, Math.min(60, Number.isFinite(parsed) ? Math.floor(parsed) : cleanupOldImagesMonths));
+                              })();
+                              const ok = window.confirm(`Delete images older than ${months} months? This cannot be undone.`);
                               if (!ok) return;
                               setCleanupOldImagesBusy(true);
                               try {
@@ -1727,7 +1748,7 @@ export default function DashboardPage() {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({
-                                    olderThanMonths: cleanupOldImagesMonths,
+                                    olderThanMonths: months,
                                     dryRun: false,
                                     includeOcrJobImages: cleanupOldImagesIncludeJobs,
                                   }),
