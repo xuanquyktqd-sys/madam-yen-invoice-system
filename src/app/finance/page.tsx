@@ -144,32 +144,49 @@ export default function FinancePage() {
   }, [buildParams]);
 
   const fetchBills = useCallback(async () => {
+    const cacheKey = `bills:${buildParams()}`;
+    const cached = readCache(cacheKey);
+    if (cached) { setBills(cached); return; }
+
     setBillsLoading(true);
     try {
       const res = await fetch(`/api/finance/utility-bills?${buildParams()}`);
       const json = await res.json();
-      setBills(Array.isArray(json.bills) ? json.bills : []);
+      const data = Array.isArray(json.bills) ? json.bills : [];
+      setBills(data);
+      writeCache(cacheKey, data);
     } catch { setBills([]); }
     finally { setBillsLoading(false); }
   }, [buildParams]);
 
   const fetchLabour = useCallback(async () => {
+    const cacheKey = `labour:${buildParams()}`;
+    const cached = readCache(cacheKey);
+    if (cached) { setLabourCosts(cached); return; }
+
     setLabourLoading(true);
     try {
       const res = await fetch(`/api/finance/labour?${buildParams()}`);
       const json = await res.json();
-      setLabourCosts(Array.isArray(json.costs) ? json.costs : []);
+      const data = Array.isArray(json.costs) ? json.costs : [];
+      setLabourCosts(data);
+      writeCache(cacheKey, data);
     } catch { setLabourCosts([]); }
     finally { setLabourLoading(false); }
   }, [buildParams]);
 
   const fetchOther = useCallback(async () => {
+    const cacheKey = `other:${buildParams()}`;
+    const cached = readCache(cacheKey);
+    if (cached) { setOtherExp(cached); return; }
+
     setOtherLoading(true);
     try {
       const res = await fetch(`/api/finance/other-expenses?${buildParams()}`);
       const json = await res.json();
       const data = Array.isArray(json.expenses) ? json.expenses : [];
       setOtherExp(data);
+      writeCache(cacheKey, data);
     } catch { setOtherExp([]); }
     finally { setOtherLoading(false); }
   }, [buildParams]);
