@@ -50,6 +50,7 @@ export async function middleware(request: NextRequest) {
     const allowedUi = pathname === '/upload' || pathname.startsWith('/upload/');
     const allowedApi =
       pathname === '/api/process' ||
+      pathname === '/api/ocr-jobs' ||
       pathname.startsWith('/api/ocr-jobs/');
 
     if (isApiRoute(pathname)) {
@@ -78,4 +79,3 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
-
