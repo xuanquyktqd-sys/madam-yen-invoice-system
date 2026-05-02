@@ -25,7 +25,7 @@ export default function LoginPage() {
       }
 
       const role = json?.role;
-      window.location.href = role === 'staff' ? '/upload' : '/dashboard';
+      window.location.href = role === 'staff' ? '/upload' : '/finance';
     } catch (err) {
       setError((err as Error).message);
     } finally {
