@@ -5,6 +5,7 @@ import OverviewTab from './components/OverviewTab';
 import RevenueTab from './components/RevenueTab';
 import PurchasesTab from './components/PurchasesTab';
 import UtilityTab from './components/UtilityTab';
+import LabourTab from './components/LabourTab';
 import OtherExpTab from './components/OtherExpTab';
 import GlobalSettingsModal from './components/GlobalSettingsModal';
 
