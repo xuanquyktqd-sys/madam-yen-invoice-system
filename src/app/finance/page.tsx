@@ -168,16 +168,6 @@ export default function FinancePage() {
     try {
       const res = await fetch(`/api/finance/other-expenses?${buildParams()}`);
       const json = await res.json();
-      setOtherExp(Array.isArray(json.expenses) ? json.expenses : []);
-    } catch { setOtherExp([]); }
-    finally { setOtherLoading(false); }
-  }, [buildParams]);
-
-  const fetchOther = useCallback(async () => {
-    setOtherLoading(true);
-    try {
-      const res = await fetch(`/api/finance/other-expenses?${buildParams()}`);
-      const json = await res.json();
       setOtherCosts(Array.isArray(json.costs) ? json.costs : []);
     } catch { setOtherCosts([]); }
     finally { setOtherLoading(false); }
