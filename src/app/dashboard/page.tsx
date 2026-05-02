@@ -685,10 +685,12 @@ export default function DashboardPage() {
 
     const tick = () => {
       void fetchActiveOcrJobs();
-      activeJobsPollRef.current = window.setTimeout(tick, 5000);
+      // Smart polling: only refresh every 60s when there are running jobs.
+      // This keeps cross-device updates reasonable without spamming DB.
+      activeJobsPollRef.current = window.setTimeout(tick, 60_000);
     };
 
-    activeJobsPollRef.current = window.setTimeout(tick, 5000);
+    activeJobsPollRef.current = window.setTimeout(tick, 60_000);
     return () => {
       if (activeJobsPollRef.current) window.clearTimeout(activeJobsPollRef.current);
     };
@@ -703,6 +705,25 @@ export default function DashboardPage() {
     void refreshAfterInvoiceMutation();
     void fetchOcrNotifications();
   }, [activeOcrJobs, fetchOcrNotifications, refreshAfterInvoiceMutation]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      // Smart refresh when user returns to the tab (cross-device updates).
+      void fetchActiveOcrJobs();
+      if (activeOcrJobs.length > 0) {
+        void refreshAfterInvoiceMutation();
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') onFocus();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [activeOcrJobs.length, fetchActiveOcrJobs, refreshAfterInvoiceMutation]);
   useEffect(() => {
     // Optional catalog endpoints (safe to fail before DB migration is applied)
     const cachedVendors = readSessionCache<string[]>(CATALOG_VENDORS_CACHE_KEY);
