@@ -5,8 +5,8 @@ import OverviewTab from './components/OverviewTab';
 import RevenueTab from './components/RevenueTab';
 import PurchasesTab from './components/PurchasesTab';
 import UtilityTab from './components/UtilityTab';
-import LabourTab from './components/LabourTab';
 import OtherExpTab from './components/OtherExpTab';
+import GlobalSettingsModal from './components/GlobalSettingsModal';
 
 const TABS: { key: FinanceTab; label: string; icon: string; color: string }[] = [
   { key: 'overview', label: 'Tổng Quan', icon: '📊', color: 'indigo' },
@@ -60,6 +60,7 @@ export default function FinancePage() {
   const [labourLoading, setLabourLoading] = useState(false);
   const [otherExp, setOtherExp] = useState<OtherExpense[]>([]);
   const [otherLoading, setOtherLoading] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const showToast = (text: string, type: 'success' | 'error') => {
     setToast({ text, type });
@@ -245,12 +246,7 @@ export default function FinancePage() {
             </div>
             <div className="flex items-center gap-2">
               <button 
-                onClick={() => {
-                  setTab('purchases');
-                  setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent('open-finance-settings'));
-                  }, 150);
-                }}
+                onClick={() => setSettingsOpen(true)}
                 className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all border border-slate-700 shadow-lg"
               >
                 ⚙️ Cài đặt
@@ -318,6 +314,8 @@ export default function FinancePage() {
           {toast.text}
         </div>
       )}
+      {/* Global Settings Modal */}
+      <GlobalSettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
