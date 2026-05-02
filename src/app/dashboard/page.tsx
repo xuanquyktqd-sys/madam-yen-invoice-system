@@ -37,7 +37,7 @@ type Invoice = {
 
 type UploadStep = 'idle' | 'preview' | 'confirming' | 'processing' | 'done' | 'error';
 type FilterStatus = 'all' | 'pending_review' | 'approved' | 'rejected' | 'paid';
-type DatePreset = 'all' | 'day' | 'week' | 'month' | 'last_month' | 'custom';
+type DatePreset = 'all' | 'day' | 'week' | 'last_week' | 'month' | 'last_month' | 'custom';
 type DashboardView = 'list' | 'report';
 
 type ReportVendorSummary = {
@@ -438,6 +438,20 @@ export default function DashboardPage() {
       const diffToMonday = (day + 6) % 7;
       const start = new Date(today);
       start.setDate(today.getDate() - diffToMonday);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      setDateFrom(formatYmdLocal(start));
+      setDateTo(formatYmdLocal(end));
+      return;
+    }
+
+    if (preset === 'last_week') {
+      const day = today.getDay(); // 0=Sun
+      const diffToMonday = (day + 6) % 7;
+      const thisWeekStart = new Date(today);
+      thisWeekStart.setDate(today.getDate() - diffToMonday);
+      const start = new Date(thisWeekStart);
+      start.setDate(thisWeekStart.getDate() - 7);
       const end = new Date(start);
       end.setDate(start.getDate() + 6);
       setDateFrom(formatYmdLocal(start));
@@ -3254,6 +3268,7 @@ export default function DashboardPage() {
             <div className="flex flex-wrap gap-2">
               {([
                 { key: 'week', label: 'This week' },
+                { key: 'last_week', label: 'Last week' },
                 { key: 'all', label: 'All time' },
                 { key: 'day', label: 'Today' },
                 { key: 'month', label: 'This month' },
