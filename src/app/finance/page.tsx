@@ -246,7 +246,10 @@ export default function FinancePage() {
             <div className="flex items-center gap-2">
               <button 
                 onClick={() => {
-                  window.dispatchEvent(new CustomEvent('open-finance-settings'));
+                  setTab('purchases');
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('open-finance-settings'));
+                  }, 150);
                 }}
                 className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all border border-slate-700 shadow-lg"
               >
