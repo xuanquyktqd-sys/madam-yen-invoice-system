@@ -3033,9 +3033,6 @@ export default function InvoiceManager({ dateFrom, dateTo }: { dateFrom: string;
                 />
               </div>
             )}
-                  {s === 'all' ? 'All' : statusConfig[s]?.label}
-                </button>
-              ))}
             </div>
           </div>
 
