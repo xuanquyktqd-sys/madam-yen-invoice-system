@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
   try {
     await requireRole(request, 'admin');
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
     const password = typeof body.password === 'string' ? body.password : '';
     const role = body.role === 'admin' ? 'admin' : 'staff';
     if (!username || !password) {

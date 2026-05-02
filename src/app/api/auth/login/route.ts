@@ -8,7 +8,8 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const usernameRaw = typeof body.username === 'string' ? body.username.trim() : '';
+    const username = usernameRaw.toLowerCase();
     const password = typeof body.password === 'string' ? body.password : '';
     if (!username || !password) {
       return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('app_users')
       .select('id, username, password_hash, role')
-      .eq('username', username)
+      .ilike('username', username)
       .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
