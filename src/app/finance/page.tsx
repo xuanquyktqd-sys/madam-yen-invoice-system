@@ -225,63 +225,68 @@ export default function FinancePage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-gray-200/60 shadow-sm">
+      <header className="sticky top-0 z-30 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                💰 Finance Dashboard
-              </h1>
-              <p className="text-xs text-gray-400 mt-0.5">Madam Yen — Quản lý Tài chính</p>
-            </div>
             <div className="flex items-center gap-3">
-              <a href="/dashboard" className="px-3 py-1.5 text-sm text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-black text-sm">
+                FN
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-white leading-none">
+                  Madam Yen Finance
+                </h1>
+                <p className="text-xs text-slate-400 mt-1">Hệ thống Quản lý Tài chính</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <a href="/dashboard" className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-sm font-medium transition-all border border-slate-700">
                 ← Invoices
               </a>
-              <a href="/upload" className="px-3 py-1.5 text-sm text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                📸 Upload OCR
+              <a href="/upload" className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl text-sm font-medium transition-all shadow-lg shadow-emerald-900/50">
+                📸 Upload
               </a>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
         {/* Date filters */}
         <div className="flex flex-wrap items-center gap-2">
           {presets.map(p => (
             <button key={p.key} onClick={() => applyPreset(p.key)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${datePreset === p.key ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:border-indigo-300'}`}>
+              className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all border ${datePreset === p.key ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-900/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}>
               {p.label}
             </button>
           ))}
           {datePreset === 'custom' && (
-            <div className="flex items-center gap-2 ml-2">
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" />
-              <span className="text-gray-400">→</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" />
-              <button onClick={() => { setDateFrom(customFrom); setDateTo(customTo); }} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
-                Apply
+            <div className="flex items-center gap-2 ml-2 bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-transparent border-none focus:ring-0 text-sm text-white" />
+              <span className="text-slate-500">→</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-transparent border-none focus:ring-0 text-sm text-white" />
+              <button onClick={() => { setDateFrom(customFrom); setDateTo(customTo); }} className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+                Lọc
               </button>
             </div>
           )}
-          {dateFrom && dateTo && <span className="text-xs text-gray-400 ml-2">{dateFrom} → {dateTo}</span>}
+          {dateFrom && dateTo && <span className="text-xs text-slate-500 ml-2">{dateFrom} → {dateTo}</span>}
         </div>
 
         {/* Tab navigation */}
-        <div className="flex gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-sm overflow-x-auto">
+        <div className="flex gap-1 bg-slate-900 rounded-2xl border border-slate-800 p-1.5 shadow-2xl overflow-x-auto">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${tab === t.key ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}>
-              <span>{t.icon}</span> {t.label}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${tab === t.key ? 'bg-slate-800 text-white border border-slate-700 shadow-inner' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}`}>
+              <span className="text-base">{t.icon}</span> {t.label}
             </button>
           ))}
         </div>
 
         {/* Tab content */}
-        <div className="min-h-[400px]">
+        <div className="min-h-[500px] animate-in fade-in duration-500">
           {tab === 'overview' && <OverviewTab summary={summary} loading={summaryLoading} />}
           {tab === 'revenue' && <RevenueTab sales={sales} loading={salesLoading} onAdd={addRevenue} onDelete={deleteRevenue} />}
           {tab === 'utility' && <UtilityTab bills={bills} loading={billsLoading} onAdd={addBill} onDelete={deleteBill} />}
@@ -292,7 +297,7 @@ export default function FinancePage() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white animate-[slideUp_0.3s_ease-out] ${toast.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`}>
+        <div className={`fixed bottom-8 right-8 z-50 px-6 py-3 rounded-2xl shadow-2xl text-sm font-bold text-white border animate-in slide-in-from-bottom-4 duration-300 ${toast.type === 'success' ? 'bg-emerald-600 border-emerald-500' : 'bg-rose-600 border-rose-500'}`}>
           {toast.text}
         </div>
       )}

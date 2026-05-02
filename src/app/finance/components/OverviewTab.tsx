@@ -47,9 +47,12 @@ export default function OverviewTab({ summary, loading }: { summary: FinanceSumm
         {KPI_STYLES.map(k => {
           const val = k.key === 'profit_margin' ? summary[k.key] : summary[k.key];
           return (
-            <div key={k.key} className={`bg-gradient-to-br ${k.gradient} rounded-2xl p-5 text-white shadow-lg hover:scale-[1.02] transition-transform`}>
-              <div className="text-2xl mb-1">{k.icon}</div>
-              <div className="text-sm opacity-80">{k.label}</div>
+            <div key={k.key} className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 text-white shadow-xl hover:border-indigo-500/50 transition-all group`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-2xl">{k.icon}</span>
+                <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${k.gradient} opacity-20 group-hover:opacity-100 transition-opacity`} />
+              </div>
+              <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">{k.label}</div>
               <div className="text-2xl font-bold mt-1">
                 {k.key === 'profit_margin' ? `${val.toFixed(1)}%` : formatNZD(val)}
               </div>
@@ -60,48 +63,56 @@ export default function OverviewTab({ summary, loading }: { summary: FinanceSumm
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Revenue vs Expenses Chart */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Doanh Thu & Chi Phí theo ngày</h3>
+        <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl p-6">
+          <h3 className="text-sm font-bold text-slate-100 mb-6 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+            Doanh Thu & Chi Phí (30 ngày gần nhất)
+          </h3>
           {chartData.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">Chưa có dữ liệu</div>
+            <div className="text-center py-10 text-slate-500 text-sm italic">Chưa có dữ liệu</div>
           ) : (
-            <div className="flex items-end gap-[2px] h-44 overflow-x-auto">
+            <div className="flex items-end gap-[3px] h-48 overflow-x-auto pb-2 scrollbar-hide">
               {chartData.map(([date, v]) => (
-                <div key={date} className="flex flex-col items-center gap-[1px] flex-1 min-w-[12px] group relative">
-                  <div className="w-full bg-emerald-400 rounded-t-sm transition-all" style={{ height: `${(v.revenue/maxVal)*140}px` }} />
-                  <div className="w-full bg-rose-400 rounded-t-sm transition-all" style={{ height: `${(v.expense/maxVal)*140}px` }} />
-                  <div className="hidden group-hover:block absolute -top-16 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-10">
-                    {date.slice(5)}: Rev {formatNZD(v.revenue)} | Exp {formatNZD(v.expense)}
+                <div key={date} className="flex flex-col items-center gap-[2px] flex-1 min-w-[14px] group relative">
+                  <div className="w-full bg-emerald-500/80 group-hover:bg-emerald-400 rounded-t-sm transition-all" style={{ height: `${(v.revenue/maxVal)*140}px` }} />
+                  <div className="w-full bg-rose-500/80 group-hover:bg-rose-400 rounded-t-sm transition-all" style={{ height: `${(v.expense/maxVal)*140}px` }} />
+                  <div className="hidden group-hover:block absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-700 text-white text-[10px] rounded-lg px-2 py-1.5 whitespace-nowrap z-20 shadow-2xl">
+                    <div className="font-bold text-slate-400 mb-1">{date}</div>
+                    <div className="text-emerald-400">Thu: {formatNZD(v.revenue)}</div>
+                    <div className="text-rose-400">Chi: {formatNZD(v.expense)}</div>
                   </div>
                 </div>
               ))}
             </div>
           )}
-          <div className="flex gap-4 mt-3 text-xs text-gray-500">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-emerald-400 rounded-sm inline-block" /> Doanh thu</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-rose-400 rounded-sm inline-block" /> Chi phí</span>
+          <div className="flex gap-6 mt-6 text-[10px] uppercase tracking-widest font-bold text-slate-500">
+            <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 bg-emerald-500 rounded-full" /> Doanh thu</span>
+            <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 bg-rose-500 rounded-full" /> Chi phí</span>
           </div>
         </div>
 
         {/* Expense Breakdown */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Cơ cấu Chi Phí</h3>
-          <div className="space-y-3">
+        <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl p-6">
+          <h3 className="text-sm font-bold text-slate-100 mb-6 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+            Cơ cấu Chi Phí
+          </h3>
+          <div className="space-y-5">
             {breakdownItems.map(item => (
               <div key={item.label}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">{item.label}</span>
-                  <span className="font-medium">{formatNZD(item.value)} <span className="text-gray-400">({item.pct.toFixed(1)}%)</span></span>
+                <div className="flex justify-between text-xs mb-2">
+                  <span className="text-slate-400 font-medium">{item.label}</span>
+                  <span className="font-bold text-slate-200">{formatNZD(item.value)} <span className="text-slate-600 ml-1">{item.pct.toFixed(1)}%</span></span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-2.5">
-                  <div className={`${item.color} h-2.5 rounded-full transition-all duration-500`} style={{ width: `${item.pct}%` }} />
+                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div className={`${item.color} h-full rounded-full transition-all duration-1000 shadow-[0_0_8px_rgba(0,0,0,0.5)]`} style={{ width: `${item.pct}%` }} />
                 </div>
               </div>
             ))}
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between text-sm font-semibold">
-            <span>Tổng chi phí</span>
-            <span>{formatNZD(total)}</span>
+          <div className="mt-8 pt-5 border-t border-slate-800 flex justify-between items-center">
+            <span className="text-sm text-slate-400 font-medium">Tổng chi phí</span>
+            <span className="text-lg font-black text-white tracking-tight">{formatNZD(total)}</span>
           </div>
         </div>
       </div>
