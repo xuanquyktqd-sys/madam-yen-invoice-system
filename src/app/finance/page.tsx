@@ -78,6 +78,31 @@ export default function FinancePage() {
 
   useEffect(() => { applyPreset('month'); }, [applyPreset]);
 
+  const refreshAll = useCallback(async () => {
+    // Chỉ refresh những cái quan trọng
+    void fetchSummary();
+    if (tab === 'revenue') void fetchSales();
+    if (tab === 'utility') void fetchBills();
+    if (tab === 'labour') void fetchLabour();
+    if (tab === 'other') void fetchOther();
+  }, [tab, fetchSummary, fetchSales, fetchBills, fetchLabour, fetchOther]);
+
+  // Initial load & automatic refresh on date change
+  useEffect(() => {
+    refreshAll();
+  }, [dateFrom, dateTo, tab]);
+
+  // Global Data Change Listener - CỰC KỲ CẨN THẬN Ở ĐÂY
+  useEffect(() => {
+    const handleDataChange = () => {
+      console.log('External data change detected, refreshing...');
+      // Không dùng refreshAll trực tiếp để tránh dependency loop
+      void fetchSummary();
+    };
+    window.addEventListener('finance-data-changed', handleDataChange);
+    return () => window.removeEventListener('finance-data-changed', handleDataChange);
+  }, [fetchSummary]);
+
   const buildParams = useCallback(() => {
     const p = new URLSearchParams();
     if (dateFrom) p.set('from', dateFrom);
