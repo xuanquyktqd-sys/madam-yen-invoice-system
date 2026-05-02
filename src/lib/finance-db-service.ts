@@ -583,7 +583,7 @@ export async function getFinanceSummary(opts: {
   const expRes = await pool.query(
     `SELECT
        expense_type,
-       COALESCE(SUM(amount_excl_gst), 0)::numeric AS total
+       COALESCE(SUM(amount), 0)::numeric AS total
      FROM expenses ${expWhere}
      GROUP BY expense_type`,
     expParams
@@ -603,7 +603,7 @@ export async function getFinanceSummary(opts: {
 
   // Daily expenses (aggregated)
   const dailyExpRes = await pool.query(
-    `SELECT expense_date::text AS date, COALESCE(SUM(amount_excl_gst), 0)::numeric AS amount
+    `SELECT expense_date::text AS date, COALESCE(SUM(amount), 0)::numeric AS amount
      FROM expenses ${expWhere}
      GROUP BY expense_date
      ORDER BY expense_date ASC`,
@@ -643,6 +643,6 @@ export async function getAllocatedExpenses(from: string, to: string): Promise<Al
   return res.rows.map(row => ({
     expense_type: String(row.expense_type),
     category: String(row.category),
-    total_amount: toNum(row.total_amount) ?? 0,
+    total_amount: toNum(row.amount) ?? 0,
   }));
 }
