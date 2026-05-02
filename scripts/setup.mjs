@@ -101,12 +101,6 @@ async function setupDatabase() {
   ];
 
   for (const sql of statements) {
-    const tableName = sql.match(/(?:TABLE|INDEX)\s+(?:IF NOT EXISTS\s+)?(\w+)/i)?.[1] ?? 'query';
-    const { error } = await supabase.rpc('query', { sql }).catch(async () => {
-      // Try raw SQL via pg REST
-      return supabase.from('_exec').select('*').eq('sql', sql);
-    });
-
     // Supabase JS doesn't support raw DDL via client — use fetch to Management API
     const pgResp = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/query`, {
       method: 'POST',
@@ -149,6 +143,9 @@ async function verifySetup() {
     console.log('\n🎉 All set! Madam Yen IMS is ready.\n');
   }
 }
+
+// Keep unused helper from triggering lint warning.
+void setupDatabase;
 
 // ── Run ────────────────────────────────────────────────────────────────────
 async function main() {

@@ -198,7 +198,6 @@ const CACHE_PREFIX = 'madam-yen:v1:';
 const INVOICE_CACHE_PREFIX = `${CACHE_PREFIX}invoices:`;
 const REPORT_CACHE_PREFIX = `${CACHE_PREFIX}cost-report:`;
 const VENDOR_SETTINGS_CACHE_KEY = `${CACHE_PREFIX}vendor-settings`;
-const CATALOG_VENDORS_CACHE_KEY = `${CACHE_PREFIX}catalog:vendors`;
 const CATALOG_UNITS_CACHE_KEY = `${CACHE_PREFIX}catalog:units`;
 
 const readSessionCache = <T,>(key: string): T | null => {
@@ -307,7 +306,6 @@ export default function DashboardPage() {
   const [reviewMenuOpen, setReviewMenuOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
-  const [vendorOptions, setVendorOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'vendors' | 'users' | 'maintenance'>('vendors');
@@ -551,7 +549,6 @@ export default function DashboardPage() {
   useEffect(() => {
     // Default: this week
     applyDatePreset('week');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -726,27 +723,18 @@ export default function DashboardPage() {
   }, [activeOcrJobs.length, fetchActiveOcrJobs, refreshAfterInvoiceMutation]);
   useEffect(() => {
     // Optional catalog endpoints (safe to fail before DB migration is applied)
-    const cachedVendors = readSessionCache<string[]>(CATALOG_VENDORS_CACHE_KEY);
     const cachedUnits = readSessionCache<string[]>(CATALOG_UNITS_CACHE_KEY);
-    if (cachedVendors) setVendorOptions(cachedVendors);
     if (cachedUnits) setUnitOptions(cachedUnits);
-    if (cachedVendors && cachedUnits) return;
+    if (cachedUnits) return;
 
-    void Promise.all([
-      cachedVendors
-        ? Promise.resolve({ vendors: cachedVendors })
-        : fetch('/api/catalog/vendors').then((r) => r.json()).catch(() => ({})),
-      cachedUnits
-        ? Promise.resolve({ units: cachedUnits })
-        : fetch('/api/catalog/units').then((r) => r.json()).catch(() => ({})),
-    ]).then(([v, u]) => {
-      const vendors = Array.isArray(v?.vendors) ? v.vendors : [];
-      const units = Array.isArray(u?.units) ? u.units : [];
-      setVendorOptions(vendors);
-      setUnitOptions(units);
-      if (!cachedVendors) writeSessionCache(CATALOG_VENDORS_CACHE_KEY, vendors);
-      if (!cachedUnits) writeSessionCache(CATALOG_UNITS_CACHE_KEY, units);
-    });
+    void fetch('/api/catalog/units')
+      .then((r) => r.json())
+      .then((u) => {
+        const units = Array.isArray(u?.units) ? u.units : [];
+        setUnitOptions(units);
+        writeSessionCache(CATALOG_UNITS_CACHE_KEY, units);
+      })
+      .catch(() => {});
   }, []);
 
   const setCachedVendorSettings = useCallback((updater: VendorSetting[] | ((prev: VendorSetting[]) => VendorSetting[])) => {
@@ -1227,12 +1215,6 @@ export default function DashboardPage() {
       return { ...p, ...totals, freight: String(freight) };
     });
   }, [editMode, editItems, editForm.freight, selectedInvoice]);
-
-  const cancelEdit = () => {
-    setEditMode(false);
-    setEditItems([]);
-    lastHydratedInvoiceIdRef.current = null;
-  };
 
   const openCreditNote = () => {
     if (!selectedInvoice) return;
@@ -1753,11 +1735,6 @@ export default function DashboardPage() {
                                         const json = await res.json().catch(() => ({}));
                                         if (!res.ok) throw new Error(json.error ?? 'Failed to delete vendor');
                                         setCachedVendorSettings((prev) => prev.filter((x) => x.id !== v.id));
-                                        setVendorOptions((prev) => {
-                                          const next = prev.filter((name) => name !== v.name);
-                                          writeSessionCache(CATALOG_VENDORS_CACHE_KEY, next);
-                                          return next;
-                                        });
                                         showToast('Vendor deleted', 'success');
                                       } catch (err) {
                                         showToast((err as Error).message, 'error');
@@ -1937,9 +1914,7 @@ export default function DashboardPage() {
                               'success'
                             );
                             removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
-                            removeSessionCache(CATALOG_VENDORS_CACHE_KEY);
                             removeSessionCache(CATALOG_UNITS_CACHE_KEY);
-                            setVendorOptions([]);
                             setUnitOptions([]);
                             await fetchVendorSettings({ force: true });
                           } catch (err) {
@@ -2148,16 +2123,8 @@ export default function DashboardPage() {
                             next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
                             return next;
                           });
-                          setVendorOptions((prev) => {
-                            const name = String(json.vendor.name ?? '');
-                            if (!name || prev.includes(name)) return prev;
-                            const next = [name, ...prev].sort((a, b) => a.localeCompare(b));
-                            writeSessionCache(CATALOG_VENDORS_CACHE_KEY, next);
-                            return next;
-                          });
                         } else {
                           removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
-                          removeSessionCache(CATALOG_VENDORS_CACHE_KEY);
                           await fetchVendorSettings({ force: true });
                         }
                         showToast('Vendor created', 'success');

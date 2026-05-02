@@ -446,7 +446,7 @@ export async function POST() {
     }
 
     return NextResponse.json({ success: true, message: 'Schema created successfully.' });
-  } catch (err) {
+  } catch {
     return NextResponse.json({
       message: 'Please run this SQL manually in Supabase SQL Editor:',
       sql: SCHEMA_SQL,
