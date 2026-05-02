@@ -3030,11 +3030,8 @@ export default function InvoiceManager({ dateFrom, dateTo }: { dateFrom: string;
                   value={reportProductSearch}
                   onChange={(e) => setReportProductSearch(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-                />
               </div>
             )}
-            </div>
-          </div>
 
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <span>📅 Dải ngày:</span>
@@ -3042,6 +3039,7 @@ export default function InvoiceManager({ dateFrom, dateTo }: { dateFrom: string;
                 {dateFrom || 'Mọi lúc'} — {dateTo || 'Mọi lúc'}
               </span>
             </div>
+          </div>
         </div>
 
         {/* ── Invoice table / cards ──────────────────────────────────────────── */}
