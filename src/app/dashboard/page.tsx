@@ -1505,6 +1505,12 @@ export default function DashboardPage() {
               </svg>
               CSV
             </button>
+            <a
+              href="/finance"
+              className="hidden sm:flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-3 py-2.5 rounded-xl text-sm font-medium transition-all shadow-lg shadow-indigo-900/30"
+            >
+              💰 Finance
+            </a>
             <button
               type="button"
               onClick={() => { setSettingsTab('vendors'); setSettingsOpen(true); }}
@@ -1575,6 +1581,14 @@ export default function DashboardPage() {
                 <span className="font-semibold">⬇️ Export CSV</span>
                 <span className="text-slate-400">→</span>
               </button>
+              <a
+                href="/finance"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white border border-indigo-500"
+              >
+                <span className="font-semibold">💰 Finance Dashboard</span>
+                <span className="text-indigo-200">→</span>
+              </a>
               <button
                 onClick={() => { setMobileMenuOpen(false); setSettingsTab('vendors'); setSettingsOpen(true); }}
                 className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"

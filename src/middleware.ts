@@ -65,7 +65,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Admin: prevent visiting /upload-only flow (optional) — allow.
+  // Admin: full access to /dashboard, /finance, /upload, and all APIs.
   return NextResponse.next();
 }
 
