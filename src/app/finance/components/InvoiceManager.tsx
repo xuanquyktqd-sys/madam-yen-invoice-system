@@ -3014,22 +3014,41 @@ export default function InvoiceManager({ dateFrom, dateTo }: { dateFrom: string;
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
+            {dashboardView === 'list' ? (
+              <div className="flex flex-wrap items-center gap-2 bg-slate-950/40 p-2 rounded-2xl border border-slate-800/50">
+                {(['all', 'pending_review', 'approved', 'paid'] as FilterStatus[]).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setFilterStatus(s)}
+                    className={`px-4 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all duration-300 border ${
+                      filterStatus === s
+                        ? s === 'pending_review' ? 'bg-amber-500/20 border-amber-500/50 text-amber-400 shadow-lg shadow-amber-900/20'
+                        : s === 'approved' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-lg shadow-emerald-900/20'
+                        : s === 'paid' ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400 shadow-lg shadow-indigo-900/20'
+                        : 'bg-slate-700 border-slate-600 text-white'
+                        : 'bg-transparent border-transparent text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    {s === 'all' ? 'Tất cả' : s === 'pending_review' ? '⏳ Chờ duyệt' : s === 'approved' ? '✅ Đã duyệt' : '💰 Đã chi'}
+                  </button>
+                ))}
+              </div>
             ) : (
-              <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 animate-in fade-in slide-in-from-right-4 duration-300">
                 <input
                   type="text"
                   list="vendor-options"
-                  placeholder="Filter by vendor..."
+                  placeholder="Lọc theo nhà cung cấp..."
                   value={reportVendorFilter}
                   onChange={(e) => setReportVendorFilter(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
                 />
                 <input
                   type="text"
-                  placeholder="Search product or code..."
+                  placeholder="Tìm sản phẩm hoặc mã..."
                   value={reportProductSearch}
                   onChange={(e) => setReportProductSearch(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
                 />
               </div>
             )}

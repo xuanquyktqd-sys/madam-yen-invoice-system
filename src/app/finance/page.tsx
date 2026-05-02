@@ -21,10 +21,19 @@ const TABS: { key: FinanceTab; label: string; icon: string; color: string }[] = 
 function getDateRange(preset: DatePreset): { from: string; to: string } {
   const now = new Date();
   if (preset === 'all') return { from: '', to: '' };
+  if (preset === 'day') return { from: fmtDate(now), to: fmtDate(now) };
   if (preset === 'week') {
     const day = now.getDay();
     const diff = (day + 6) % 7;
     const start = new Date(now); start.setDate(now.getDate() - diff);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return { from: fmtDate(start), to: fmtDate(end) };
+  }
+  if (preset === 'last_week') {
+    const day = now.getDay();
+    const diff = (day + 6) % 7;
+    const thisWeekStart = new Date(now); thisWeekStart.setDate(now.getDate() - diff);
+    const start = new Date(thisWeekStart); start.setDate(thisWeekStart.getDate() - 7);
     const end = new Date(start); end.setDate(start.getDate() + 6);
     return { from: fmtDate(start), to: fmtDate(end) };
   }
@@ -293,11 +302,12 @@ export default function FinancePage() {
   };
 
   const presets: { key: DatePreset; label: string }[] = [
+    { key: 'day', label: 'Hôm nay' },
     { key: 'week', label: 'Tuần này' },
+    { key: 'last_week', label: 'Tuần trước' },
     { key: 'month', label: 'Tháng này' },
     { key: 'last_month', label: 'Tháng trước' },
-    { key: 'all', label: 'Tất cả' },
-    { key: 'custom', label: 'Tùy chọn' },
+    { key: 'custom', label: 'Tùy chọn 📅' },
   ];
 
   return (
@@ -339,25 +349,40 @@ export default function FinancePage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Date filters */}
-        <div className="flex flex-wrap items-center gap-2">
-          {presets.map(p => (
-            <button key={p.key} onClick={() => applyPreset(p.key)}
-              className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all border ${datePreset === p.key ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-900/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}>
-              {p.label}
-            </button>
-          ))}
-          {datePreset === 'custom' && (
-            <div className="flex items-center gap-2 ml-2 bg-slate-800 p-1.5 rounded-xl border border-slate-700">
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-transparent border-none focus:ring-0 text-sm text-white" />
-              <span className="text-slate-500">→</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-transparent border-none focus:ring-0 text-sm text-white" />
-              <button onClick={() => { setDateFrom(customFrom); setDateTo(customTo); }} className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
-                Lọc
+        {/* Date filters - Premium Pills */}
+        <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/40 p-2 rounded-2xl border border-slate-800/50 backdrop-blur-md">
+          <div className="flex flex-wrap items-center gap-1">
+            {presets.map(p => (
+              <button key={p.key} onClick={() => applyPreset(p.key)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 ${
+                  datePreset === p.key 
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40 ring-1 ring-indigo-400/30' 
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}>
+                {p.label}
               </button>
-            </div>
-          )}
-          {dateFrom && dateTo && <span className="text-xs text-slate-500 ml-2">{dateFrom} → {dateTo}</span>}
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {datePreset === 'custom' ? (
+              <div className="flex items-center gap-2 bg-slate-800/80 p-1 rounded-xl border border-slate-700/50 animate-in fade-in zoom-in-95 duration-300">
+                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-transparent border-none focus:ring-0 text-xs text-indigo-300 font-mono" />
+                <span className="text-slate-600">→</span>
+                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-transparent border-none focus:ring-0 text-xs text-indigo-300 font-mono" />
+                <button onClick={() => { setDateFrom(customFrom); setDateTo(customTo); }} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all">
+                  Áp dụng
+                </button>
+              </div>
+            ) : (
+              <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-slate-950/40 rounded-xl border border-slate-800/50">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Thời gian:</span>
+                <span className="text-xs font-bold text-indigo-400 font-mono">
+                  {dateFrom ? fmtDate(new Date(dateFrom)) : '...'} — {dateTo ? fmtDate(new Date(dateTo)) : '...'}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Tab navigation */}
