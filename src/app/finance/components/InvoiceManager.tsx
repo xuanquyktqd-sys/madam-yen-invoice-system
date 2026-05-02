@@ -1422,8 +1422,6 @@ export default function InvoiceManager() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* ── Toast ─────────────────────────────────────────────────────────── */}
-        {/* ── Settings Modal ─────────────────────────────────────────────── */}
         {settingsOpen && (
           <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 rounded-2xl w-full max-w-3xl border border-slate-700 shadow-2xl overflow-hidden">
@@ -3425,7 +3423,6 @@ export default function InvoiceManager() {
             </section>
           </div>
         )}
-      </main>
     </div>
   );
 }
