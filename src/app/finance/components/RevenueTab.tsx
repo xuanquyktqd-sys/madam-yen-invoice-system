@@ -18,9 +18,16 @@ export default function RevenueTab({ sales, loading, onAdd, onDelete }: Props) {
     if (!form.sale_date || !form.total_revenue) return;
     setSaving(true);
     await onAdd(form);
+    window.dispatchEvent(new CustomEvent('finance-data-changed'));
     setForm({ sale_date: fmtDate(new Date()), total_revenue: '', order_count: '', notes: '' });
     setFormOpen(false);
     setSaving(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Xóa bản ghi doanh thu này?')) return;
+    await onDelete(id);
+    window.dispatchEvent(new CustomEvent('finance-data-changed'));
   };
 
   const total = sales.reduce((s, r) => s + r.total_revenue, 0);
