@@ -268,6 +268,16 @@ export default function InvoiceManager() {
   const [loading, setLoading] = useState(true);
   const [dashboardView, setDashboardView] = useState<DashboardView>('list');
   const [search, setSearch] = useState('');
+
+  // ── Event Listeners ──────────────────────────────────────────────────
+  useEffect(() => {
+    const handleOpenSettings = () => {
+      setSettingsTab('vendors');
+      setSettingsOpen(true);
+    };
+    window.addEventListener('open-finance-settings', handleOpenSettings);
+    return () => window.removeEventListener('open-finance-settings', handleOpenSettings);
+  }, []);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [dateFrom, setDateFrom] = useState<string>('');
