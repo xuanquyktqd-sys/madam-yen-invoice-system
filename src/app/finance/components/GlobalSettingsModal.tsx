@@ -194,18 +194,55 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
             {tab === 'maintenance' && (
               <div className="space-y-6">
                 <h3 className="text-xl font-bold text-white">Bảo trì hệ thống</h3>
-                <div className="bg-amber-900/10 border border-amber-900/30 p-6 rounded-3xl space-y-4">
+                
+                <div className="bg-indigo-900/10 border border-indigo-900/30 p-6 rounded-3xl space-y-4">
                   <div className="flex items-start gap-4">
-                    <span className="text-2xl">🧹</span>
+                    <span className="text-2xl text-indigo-400">🧹</span>
                     <div>
-                      <h4 className="font-bold text-amber-500">Dọn dẹp ảnh hóa đơn cũ</h4>
-                      <p className="text-sm text-slate-400 mt-1">Xóa các ảnh hóa đơn và file PDF cũ để tiết kiệm dung lượng Supabase Storage.</p>
+                      <h4 className="font-bold text-white text-lg">Dọn dẹp Catalog rác (Orphans)</h4>
+                      <p className="text-sm text-slate-400 mt-1">Xóa các Nhà cung cấp, Sản phẩm, Đơn vị tính không còn được tham chiếu bởi bất kỳ hóa đơn nào.</p>
                     </div>
                   </div>
-                  <div className="pt-4 border-t border-amber-900/20 flex items-center justify-between">
-                    <span className="text-sm text-slate-500">Lưu ý: Hành động này không thể hoàn tác.</span>
-                    <button className="px-5 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-sm font-bold hover:bg-red-900/30 hover:text-red-400 transition-all border border-slate-700">
-                      Chạy dọn dẹp
+                  <div className="pt-4 border-t border-indigo-900/20 flex items-center justify-between">
+                    <span className="text-sm text-slate-500">Giúp làm gọn danh sách gợi ý khi nhập hóa đơn.</span>
+                    <button 
+                      onClick={async () => {
+                        if (!window.confirm('Dọn dẹp các mục không sử dụng?')) return;
+                        setLoading(true);
+                        try {
+                          const res = await fetch('/api/maintenance/cleanup-orphans', { method: 'POST' });
+                          const json = await res.json();
+                          const r = json.result || {};
+                          showToast(`Đã xóa: ${r.deleted_vendors || 0} NCC, ${r.deleted_restaurant_products || 0} SP`, 'success');
+                          fetchVendors();
+                        } catch (err) {
+                          showToast('Lỗi khi dọn dẹp', 'error');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-900/40"
+                    >
+                      Chạy dọn dẹp ngay
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-rose-900/10 border border-rose-900/30 p-6 rounded-3xl space-y-4">
+                  <div className="flex items-start gap-4">
+                    <span className="text-2xl text-rose-400">🖼️</span>
+                    <div>
+                      <h4 className="font-bold text-white text-lg">Xóa ảnh hóa đơn cũ</h4>
+                      <p className="text-sm text-slate-400 mt-1">Giải phóng dung lượng lưu trữ (Supabase Storage) bằng cách xóa ảnh hóa đơn đã cũ.</p>
+                    </div>
+                  </div>
+                  <div className="pt-4 border-t border-rose-900/20 flex items-center justify-between">
+                    <span className="text-sm text-slate-500">Lưu ý: Thao tác này không thể hoàn tác.</span>
+                    <button 
+                      onClick={() => showToast('Tính năng đang được tối ưu', 'error')}
+                      className="px-5 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-sm font-bold hover:bg-rose-600 hover:text-white transition-all border border-slate-700"
+                    >
+                      Xóa ảnh cũ
                     </button>
                   </div>
                 </div>
