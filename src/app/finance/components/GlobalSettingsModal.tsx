@@ -37,9 +37,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
   const fetchVendors = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/dashboard/settings/vendors');
-      const data = await res.json();
-      setVendors(Array.isArray(data) ? data : []);
+      const res = await fetch('/api/vendor-settings');
+      const json = await res.json();
+      // API này trả về { vendors: [...] }
+      setVendors(Array.isArray(json.vendors) ? json.vendors : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -50,7 +51,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
   const handleCreateVendor = async () => {
     if (!vendorForm.name) return;
     try {
-      const res = await fetch('/api/dashboard/settings/vendors', {
+      const res = await fetch('/api/vendor-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(vendorForm),
@@ -60,24 +61,41 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
       setVendorCreateOpen(false);
       setVendorForm({ name: '', gst_number: '', address: '', default_category: '' });
       fetchVendors();
-      // Notify other components
       window.dispatchEvent(new CustomEvent('vendor-settings-updated'));
     } catch (err) {
       showToast((err as Error).message, 'error');
     }
   };
 
-  const toggleVendorStatus = async (id: string, current: boolean) => {
+  const toggleGstMode = async (id: string, currentMode: boolean) => {
     try {
-      await fetch('/api/dashboard/settings/vendors', {
-        method: 'PUT',
+      const res = await fetch('/api/vendor-settings', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, is_active: !current }),
+        body: JSON.stringify({ vendor_id: id, prices_include_gst: !currentMode }),
       });
+      if (!res.ok) throw new Error('Update failed');
       fetchVendors();
       window.dispatchEvent(new CustomEvent('vendor-settings-updated'));
     } catch (err) {
-      showToast('Lỗi cập nhật', 'error');
+      showToast('Lỗi cập nhật GST', 'error');
+    }
+  };
+
+  const handleDeleteVendor = async (id: string, name: string) => {
+    if (!window.confirm(`Xóa nhà cung cấp "${name}"?`)) return;
+    try {
+      const res = await fetch('/api/vendor-settings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vendor_id: id }),
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      showToast('Đã xóa Vendor', 'success');
+      fetchVendors();
+      window.dispatchEvent(new CustomEvent('vendor-settings-updated'));
+    } catch (err) {
+      showToast('Lỗi khi xóa', 'error');
     }
   };
 
@@ -130,12 +148,14 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
 
                 {loading ? (
                   <div className="py-20 flex justify-center"><div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full" /></div>
+                ) : vendors.length === 0 ? (
+                  <div className="text-center py-20 text-slate-500 bg-slate-900/50 rounded-3xl border border-dashed border-slate-800">Không tìm thấy NCC nào</div>
                 ) : (
                   <div className="grid gap-3">
-                    {vendors.map(v => (
+                    {vendors.map((v: any) => (
                       <div key={v.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between group hover:border-slate-700 transition-all">
                         <div className="flex items-center gap-4">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${v.is_active ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
+                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl bg-indigo-500/10 text-indigo-400 font-bold`}>
                             {v.name.charAt(0).toUpperCase()}
                           </div>
                           <div>
@@ -143,14 +163,25 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
                             <div className="text-xs text-slate-500 font-mono mt-1">{v.gst_number || 'No GST'} • {v.default_category || 'No Category'}</div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Giá bao gồm GST?</div>
+                            <button 
+                              onClick={() => toggleGstMode(v.id, v.prices_include_gst)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                v.prices_include_gst 
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' 
+                                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                              }`}
+                            >
+                              {v.prices_include_gst ? 'ĐANG BẬT' : 'ĐANG TẮT'}
+                            </button>
+                          </div>
                           <button 
-                            onClick={() => toggleVendorStatus(v.id, v.is_active)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                              v.is_active ? 'bg-emerald-500/10 text-emerald-500 hover:bg-red-500/10 hover:text-red-500' : 'bg-slate-800 text-slate-400 hover:bg-emerald-500/10 hover:text-emerald-500'
-                            }`}
+                            onClick={() => handleDeleteVendor(v.id, v.name)}
+                            className="p-2 text-slate-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                           >
-                            {v.is_active ? 'Active' : 'Disabled'}
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
                         </div>
                       </div>
