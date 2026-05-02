@@ -345,7 +345,7 @@ export default function DashboardPage() {
     vendor_gst_number: '',
     invoice_number: '',
     invoice_date: new Date().toISOString().slice(0, 10),
-    category: '',
+    category: 'Food',
     sub_total: '',
     freight: '',
     gst_amount: '',
@@ -367,7 +367,7 @@ export default function DashboardPage() {
     vendor_gst_number: '',
     invoice_number: '',
     invoice_date: '',
-    category: '',
+    category: 'Food',
     sub_total: '',
     freight: '',
     gst_amount: '',
@@ -1047,7 +1047,7 @@ export default function DashboardPage() {
       vendor_gst_number: '',
       invoice_number: '',
       invoice_date: new Date().toISOString().slice(0, 10),
-      category: '',
+      category: 'Food',
       sub_total: '',
       freight: '',
       gst_amount: '',
@@ -1143,7 +1143,7 @@ export default function DashboardPage() {
       vendor_gst_number: invoice.vendor_gst_number ?? '',
       invoice_number: invoice.invoice_number ?? '',
       invoice_date: toDateInput(invoice.invoice_date ?? ''),
-      category: invoice.category ?? '',
+      category: invoice.category ?? 'Food',
       sub_total: String(isCredit ? -Math.abs(invoice.sub_total ?? 0) : (invoice.sub_total ?? '')),
       freight: String(isCredit ? -Math.abs(invoice.freight ?? 0) : (invoice.freight ?? '')),
       gst_amount: String(isCredit ? -Math.abs(invoice.gst_amount ?? 0) : (invoice.gst_amount ?? '')),
@@ -2355,12 +2355,14 @@ export default function DashboardPage() {
                   </label>
                   <label className="text-sm sm:col-span-2">
                     <div className="text-slate-400 mb-1">Category</div>
-                    <input
+                    <select
                       value={manualForm.category}
                       onChange={(e) => setManualForm((p) => ({ ...p, category: e.target.value }))}
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                      placeholder="Food / Cleaning / ..."
-                    />
+                    >
+                      <option value="Food">Food</option>
+                      <option value="Beverage">Beverage</option>
+                    </select>
                   </label>
                 </div>
 
@@ -2808,11 +2810,14 @@ export default function DashboardPage() {
                           </label>
                           <label className="sm:col-span-2">
                             <div className="text-slate-400 mb-1">Category</div>
-                            <input
+                            <select
                               value={editForm.category}
                               onChange={(e) => setEditForm((p) => ({ ...p, category: e.target.value }))}
                               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                            />
+                            >
+                              <option value="Food">Food</option>
+                              <option value="Beverage">Beverage</option>
+                            </select>
                           </label>
                         </div>
                       </section>

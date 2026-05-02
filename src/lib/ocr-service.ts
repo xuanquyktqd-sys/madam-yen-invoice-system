@@ -75,11 +75,9 @@ Return ONLY a raw JSON object matching this exact schema:
 // ─── Vendor Category Mapping ───────────────────────────────────────────────
 export function deriveCategory(vendorName: string): string {
   const name = vendorName.toLowerCase();
-  if (name.includes('tokyo') || name.includes('gilmours') || name.includes('bidfood') || name.includes('food')) return 'Food';
-  if (name.includes('southern hospitality') || name.includes('equipment')) return 'Equipment';
-  if (name.includes('liquor') || name.includes('beer') || name.includes('wine')) return 'Beverages';
-  if (name.includes('cleaning') || name.includes('hygiene')) return 'Cleaning';
-  return 'Other';
+  // Only two categories for v1.
+  if (name.includes('liquor') || name.includes('beer') || name.includes('wine') || name.includes('beverage')) return 'Beverage';
+  return 'Food';
 }
 
 // ─── Financial Validation ──────────────────────────────────────────────────
