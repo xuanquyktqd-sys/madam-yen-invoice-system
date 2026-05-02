@@ -220,6 +220,7 @@ export default function FinancePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       showToast('Đã thêm doanh thu', 'success');
+      clearFinanceCache();
       fetchSales();
     } catch (err) { showToast((err as Error).message, 'error'); }
   };
@@ -229,6 +230,7 @@ export default function FinancePage() {
       const res = await fetch(`/api/finance/revenue?id=${id}`, { method: 'DELETE' });
       if (!res.ok) { const j = await res.json(); throw new Error(j.error); }
       showToast('Đã xóa', 'success');
+      clearFinanceCache();
       fetchSales();
     } catch (err) { showToast((err as Error).message, 'error'); }
   };
@@ -238,6 +240,7 @@ export default function FinancePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       showToast('Đã thêm hóa đơn', 'success');
+      clearFinanceCache();
       fetchBills();
     } catch (err) { showToast((err as Error).message, 'error'); }
   };
@@ -247,6 +250,7 @@ export default function FinancePage() {
       const res = await fetch(`/api/finance/utility-bills/${id}`, { method: 'DELETE' });
       if (!res.ok) { const j = await res.json(); throw new Error(j.error); }
       showToast('Đã xóa', 'success');
+      clearFinanceCache();
       fetchBills();
     } catch (err) { showToast((err as Error).message, 'error'); }
   };
@@ -256,6 +260,7 @@ export default function FinancePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       showToast('Đã thêm chi phí nhân công', 'success');
+      clearFinanceCache();
       fetchLabour();
     } catch (err) { showToast((err as Error).message, 'error'); }
   };
