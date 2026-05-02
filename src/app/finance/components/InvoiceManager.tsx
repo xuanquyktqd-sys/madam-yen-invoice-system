@@ -271,13 +271,15 @@ export default function InvoiceManager() {
 
   // ── Event Listeners ──────────────────────────────────────────────────
   useEffect(() => {
-    const handleOpenSettings = () => {
-      setSettingsTab('vendors');
-      setSettingsOpen(true);
+    const handleSettingsUpdate = () => {
+      console.log('Vendor settings updated, clearing cache...');
+      removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
+      fetchVendorSettings({ force: true });
     };
-    window.addEventListener('open-finance-settings', handleOpenSettings);
-    return () => window.removeEventListener('open-finance-settings', handleOpenSettings);
-  }, []);
+
+    window.addEventListener('vendor-settings-updated', handleSettingsUpdate);
+    return () => window.removeEventListener('vendor-settings-updated', handleSettingsUpdate);
+  }, [fetchVendorSettings]);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [dateFrom, setDateFrom] = useState<string>('');
