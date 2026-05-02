@@ -18,9 +18,15 @@ export default function UtilityTab({ bills, loading, onAdd, onDelete }: Props) {
     if (!form.category || !form.total_amount) return;
     setSaving(true);
     await onAdd(form);
+    window.dispatchEvent(new CustomEvent('finance-data-changed'));
     setForm({ category: 'electricity', supplier: '', bill_number: '', period_start: fmtDate(new Date()), period_end: '', total_amount: '', notes: '' });
     setFormOpen(false);
     setSaving(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    await onDelete(id);
+    window.dispatchEvent(new CustomEvent('finance-data-changed'));
   };
 
   const total = bills.reduce((s, b) => s + b.total_amount, 0);

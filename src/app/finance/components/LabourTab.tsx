@@ -18,6 +18,7 @@ export default function LabourTab({ costs, loading, onAdd, onDelete }: Props) {
     if (!form.cost_type || !form.amount || !form.pay_date) return;
     setSaving(true);
     await onAdd(form);
+    window.dispatchEvent(new CustomEvent('finance-data-changed'));
     setForm({ cost_type: 'wage', description: '', amount: '', pay_date: fmtDate(new Date()), period_start: '', period_end: '', employee_name: '', notes: '' });
     setFormOpen(false);
     setSaving(false);

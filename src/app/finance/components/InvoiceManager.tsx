@@ -1070,6 +1070,7 @@ export default function InvoiceManager() {
       showToast('Invoice deleted', 'success');
       if (selectedInvoice?.id === id) setSelectedInvoice(null);
       await refreshAfterInvoiceMutation();
+      window.dispatchEvent(new CustomEvent('finance-data-changed'));
       return;
     }
 
