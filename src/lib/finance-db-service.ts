@@ -231,7 +231,7 @@ export async function listUtilityBills(opts: {
   const params: unknown[] = [];
   let idx = 1;
 
-  if (opts.from) { conditions.push(`COALESCE(period_start, created_at::date) >= $${idx++}`); params.push(opts.from); }
+  if (opts.from) { conditions.push(`COALESCE(period_end, created_at::date) >= $${idx++}`); params.push(opts.from); }
   if (opts.to) { conditions.push(`COALESCE(period_start, created_at::date) <= $${idx++}`); params.push(opts.to); }
   if (opts.category) { conditions.push(`category = $${idx++}`); params.push(opts.category); }
 
@@ -584,9 +584,9 @@ export async function getFinanceSummary(opts: {
     `SELECT
        expense_type,
        COALESCE(SUM(amount), 0)::numeric AS total
-     FROM expenses ${expWhere}
+     FROM get_allocated_expenses($1::date, $2::date)
      GROUP BY expense_type`,
-    expParams
+    [opts.from || '1970-01-01', opts.to || '2100-01-01']
   );
 
   const breakdown = { purchase: 0, utility: 0, labour: 0, other: 0 };
@@ -603,11 +603,11 @@ export async function getFinanceSummary(opts: {
 
   // Daily expenses (aggregated)
   const dailyExpRes = await pool.query(
-    `SELECT expense_date::text AS date, COALESCE(SUM(amount), 0)::numeric AS amount
-     FROM expenses ${expWhere}
-     GROUP BY expense_date
-     ORDER BY expense_date ASC`,
-    expParams
+    `SELECT date::text AS date, COALESCE(SUM(amount), 0)::numeric AS amount
+     FROM get_allocated_expenses($1::date, $2::date)
+     GROUP BY date
+     ORDER BY date ASC`,
+    [opts.from || '1970-01-01', opts.to || '2100-01-01']
   );
   const dailyExpenses = dailyExpRes.rows.map(r => ({
     date: String(r.date).slice(0, 10),
