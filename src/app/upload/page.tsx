@@ -103,13 +103,33 @@ export default function UploadPage() {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
             <div className="text-white font-bold">New scan</div>
             <div className="text-sm text-slate-400 mt-1">Choose an image and upload.</div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => onPick(e.target.files?.[0] ?? null)}
-              className="mt-4 block w-full text-sm text-slate-300"
-            />
+            <div className="mt-4 flex flex-col sm:flex-row gap-2">
+              <input
+                id="staff-upload"
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+              <label
+                htmlFor="staff-upload"
+                className="w-full sm:w-auto cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-semibold"
+              >
+                <span>📷</span>
+                <span>Choose / Take photo</span>
+              </label>
+              {file && (
+                <button
+                  type="button"
+                  onClick={() => { setFile(null); setPreviewUrl(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 font-semibold hover:border-slate-500"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             {previewUrl && (
               <div className="mt-4 rounded-xl overflow-hidden border border-slate-800 bg-black/30">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
