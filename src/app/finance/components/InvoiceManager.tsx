@@ -270,16 +270,6 @@ export default function InvoiceManager() {
   const [search, setSearch] = useState('');
 
   // ── Event Listeners ──────────────────────────────────────────────────
-  useEffect(() => {
-    const handleSettingsUpdate = () => {
-      console.log('Vendor settings updated, clearing cache...');
-      removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
-      fetchVendorSettings({ force: true });
-    };
-
-    window.addEventListener('vendor-settings-updated', handleSettingsUpdate);
-    return () => window.removeEventListener('vendor-settings-updated', handleSettingsUpdate);
-  }, [fetchVendorSettings]);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [datePreset, setDatePreset] = useState<DatePreset>('week');
   const [dateFrom, setDateFrom] = useState<string>('');
@@ -780,6 +770,17 @@ export default function InvoiceManager() {
       setVendorSettingsLoading(false);
     }
   }, [setCachedVendorSettings]);
+
+  useEffect(() => {
+    const handleSettingsUpdate = () => {
+      console.log('Vendor settings updated, clearing cache...');
+      removeSessionCache(VENDOR_SETTINGS_CACHE_KEY);
+      fetchVendorSettings({ force: true });
+    };
+
+    window.addEventListener('vendor-settings-updated', handleSettingsUpdate);
+    return () => window.removeEventListener('vendor-settings-updated', handleSettingsUpdate);
+  }, [fetchVendorSettings]);
 
   useEffect(() => {
     if (!settingsOpen) return;
