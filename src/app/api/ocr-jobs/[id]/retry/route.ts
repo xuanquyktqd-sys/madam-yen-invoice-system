@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { retryOcrJob, triggerOcrWorker } from '@/lib/ocr-jobs';
+import { requireRole } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireRole(request, 'admin');
     const { id } = await context.params;
     const job = await retryOcrJob(id);
     const triggered = await triggerOcrWorker(id).catch(() => false);
@@ -25,6 +27,8 @@ export async function POST(
     });
   } catch (err) {
     const message = (err as Error).message;
+    if (message === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (message === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const status =
       message === 'OCR job not found' ? 404 :
       message.includes('cannot be retried') || message.includes('max retry attempts') ? 409 :

@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireRole } from '@/lib/auth';
 import {
   createManualInvoice,
   deleteInvoice,
@@ -24,6 +25,14 @@ function parseYyyyMmDd(value: string | null): string | undefined {
 }
 
 export async function GET(request: NextRequest) {
+  try {
+    await requireRole(request, 'admin');
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
   const { searchParams } = request.nextUrl;
   const id = searchParams.get('id')?.trim();
   const status = searchParams.get('status') ?? 'all';
@@ -52,6 +61,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  try {
+    await requireRole(request, 'admin');
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
   try {
     const body = await request.json();
     const { id, invoice_items, ...updates } = body as { id?: string; invoice_items?: unknown };
@@ -92,6 +109,14 @@ export async function PATCH(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireRole(request, 'admin');
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+  try {
     const body = await request.json();
     const result = await createManualInvoice(body);
 
@@ -111,6 +136,14 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  try {
+    await requireRole(request, 'admin');
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
   try {
     const body = await request.json().catch(() => ({}));
     const id = (body as { id?: string })?.id ?? request.nextUrl.searchParams.get('id');

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCostReport } from '@/lib/db-service';
+import { requireRole } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
   try {
+    await requireRole(request, 'admin');
     const report = await getCostReport({
       status: searchParams.get('status') ?? 'all',
       from: parseYyyyMmDd(searchParams.get('from')),
@@ -25,7 +27,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(report);
   } catch (err) {
+    const msg = (err as Error).message;
     console.error('[API/reports/cost GET]', err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listFinishedOcrJobs } from '@/lib/ocr-jobs';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireRole } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +15,7 @@ type InvoiceRow = {
 
 export async function GET(request: NextRequest) {
   try {
+    await requireRole(request, 'admin');
     const limit = Math.min(50, Math.max(1, parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10)));
     const jobs = await listFinishedOcrJobs(limit);
 
@@ -63,7 +65,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('[API/ocr-jobs/notifications GET]', err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
-

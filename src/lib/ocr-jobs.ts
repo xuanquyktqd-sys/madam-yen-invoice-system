@@ -9,6 +9,7 @@ export type OcrJobRecord = {
   storage_path: string;
   public_url: string | null;
   invoice_id: string | null;
+  created_by: string | null;
   attempts: number;
   max_attempts: number;
   next_run_at: string;
@@ -94,6 +95,7 @@ export async function queueOcrJob(input: {
   bucket: string;
   path: string;
   publicUrl: string | null;
+  createdBy?: string | null;
   maxAttempts?: number;
 }): Promise<OcrJobRecord> {
   const { data, error } = await supabaseAdmin
@@ -104,6 +106,7 @@ export async function queueOcrJob(input: {
       storage_bucket: input.bucket,
       storage_path: input.path,
       public_url: input.publicUrl,
+      created_by: input.createdBy ?? null,
       max_attempts: input.maxAttempts ?? 3,
     })
     .select('*')

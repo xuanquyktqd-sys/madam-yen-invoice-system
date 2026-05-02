@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireRole } from '@/lib/auth';
 import {
   createVendor,
   deleteVendorById,
@@ -6,17 +7,22 @@ import {
   updateVendorPricesIncludeGst,
 } from '@/lib/db-service';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    await requireRole(request, 'admin');
     const vendors = await listVendorSettings();
     return NextResponse.json({ vendors });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
 export async function PATCH(request: NextRequest) {
   try {
+    await requireRole(request, 'admin');
     const body = await request.json().catch(() => ({}));
     const vendorId = typeof body?.vendor_id === 'string' ? body.vendor_id : '';
     const value = typeof body?.prices_include_gst === 'boolean' ? body.prices_include_gst : null;
@@ -29,12 +35,16 @@ export async function PATCH(request: NextRequest) {
     if (!ok) return NextResponse.json({ error: 'Failed to update vendor' }, { status: 500 });
     return NextResponse.json({ success: true });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await requireRole(request, 'admin');
     const body = await request.json().catch(() => ({}));
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const gstNumber = typeof body?.gst_number === 'string' ? body.gst_number.trim() : null;
@@ -55,12 +65,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, vendor }, { status: 201 });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
+    await requireRole(request, 'admin');
     const body = await request.json().catch(() => ({}));
     const vendorId = typeof body?.vendor_id === 'string' ? body.vendor_id : '';
     if (!vendorId) {
@@ -74,6 +88,9 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

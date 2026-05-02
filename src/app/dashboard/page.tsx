@@ -310,13 +310,18 @@ export default function DashboardPage() {
   const [vendorOptions, setVendorOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'vendors' | 'maintenance'>('vendors');
+  const [settingsTab, setSettingsTab] = useState<'vendors' | 'users' | 'maintenance'>('vendors');
   const [vendorSettings, setVendorSettings] = useState<VendorSetting[]>([]);
   const [vendorSettingsLoading, setVendorSettingsLoading] = useState(false);
   const [vendorSettingsSavingId, setVendorSettingsSavingId] = useState<string | null>(null);
   const [vendorCreateOpen, setVendorCreateOpen] = useState(false);
   const [vendorCreateForm, setVendorCreateForm] = useState({ name: '', gst_number: '', address: '', prices_include_gst: false });
   const [vendorCreateSaving, setVendorCreateSaving] = useState(false);
+  const [users, setUsers] = useState<Array<{ id: string; username: string; role: 'admin' | 'staff'; created_at?: string | null }>>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userCreateOpen, setUserCreateOpen] = useState(false);
+  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'staff' as 'admin' | 'staff' });
+  const [userCreateSaving, setUserCreateSaving] = useState(false);
   const [cleanupOldImagesMonths, setCleanupOldImagesMonths] = useState(3);
   const [cleanupOldImagesMonthsText, setCleanupOldImagesMonthsText] = useState('3');
   const [cleanupOldImagesIncludeJobs, setCleanupOldImagesIncludeJobs] = useState(false);
@@ -745,6 +750,27 @@ export default function DashboardPage() {
     if (settingsTab !== 'vendors') return;
     void fetchVendorSettings();
   }, [settingsOpen, settingsTab, fetchVendorSettings]);
+
+  const fetchUsers = useCallback(async () => {
+    setUsersLoading(true);
+    try {
+      const res = await fetch('/api/admin/users');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? 'Failed to load users');
+      setUsers(Array.isArray(json?.users) ? json.users : []);
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+      setUsers([]);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    if (settingsTab !== 'users') return;
+    void fetchUsers();
+  }, [settingsOpen, settingsTab, fetchUsers]);
 
   // Keep vendor suggestions loaded for mapping in invoice modal (cached by sessionStorage).
   useEffect(() => {
@@ -1470,6 +1496,17 @@ export default function DashboardPage() {
             >
               ⚙️ Settings
             </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                window.location.href = '/login';
+              }}
+              className="hidden sm:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border border-slate-700"
+              title="Logout"
+            >
+              🚪 Logout
+            </button>
 
             {/* Mobile hamburger */}
             <button
@@ -1528,6 +1565,17 @@ export default function DashboardPage() {
                 <span className="font-semibold">⚙️ Settings</span>
                 <span className="text-slate-400">→</span>
               </button>
+              <button
+                onClick={async () => {
+                  setMobileMenuOpen(false);
+                  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                  window.location.href = '/login';
+                }}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
+              >
+                <span className="font-semibold">🚪 Logout</span>
+                <span className="text-slate-400">→</span>
+              </button>
             </div>
           </div>
         </div>
@@ -1562,6 +1610,17 @@ export default function DashboardPage() {
                     }`}
                   >
                     Vendors
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsTab('users')}
+                    className={`px-3 py-2 rounded-xl text-sm font-semibold border ${
+                      settingsTab === 'users'
+                        ? 'bg-emerald-600 border-emerald-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                    }`}
+                  >
+                    Users
                   </button>
                   <button
                     type="button"
@@ -1681,6 +1740,144 @@ export default function DashboardPage() {
                       </table>
                     </div>
                   </>
+                )}
+
+                {settingsTab === 'users' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => { setUserCreateForm({ username: '', password: '', role: 'staff' }); setUserCreateOpen(true); }}
+                        className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm border border-emerald-500"
+                      >
+                        + Create user
+                      </button>
+                      <div className="text-xs text-slate-500">Admin can create/delete staff accounts.</div>
+                    </div>
+
+                    <div className="overflow-auto max-h-[60vh] border border-slate-800 rounded-xl">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-slate-900 border-b border-slate-800">
+                          <tr className="text-slate-400">
+                            <th className="px-4 py-3 text-left font-semibold">Username</th>
+                            <th className="px-4 py-3 text-left font-semibold">Role</th>
+                            <th className="px-4 py-3 text-right font-semibold">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {usersLoading ? (
+                            <tr><td colSpan={3} className="px-4 py-6 text-slate-400">Loading…</td></tr>
+                          ) : users.length === 0 ? (
+                            <tr><td colSpan={3} className="px-4 py-6 text-slate-400">No users.</td></tr>
+                          ) : (
+                            users.map((u) => (
+                              <tr key={u.id} className="border-b border-slate-800/60">
+                                <td className="px-4 py-3 text-white font-semibold font-mono">{u.username}</td>
+                                <td className="px-4 py-3 text-slate-300">{u.role}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const ok = window.confirm(`Delete user "${u.username}"?`);
+                                      if (!ok) return;
+                                      try {
+                                        const res = await fetch(`/api/admin/users?id=${encodeURIComponent(u.id)}`, { method: 'DELETE' });
+                                        const json = await res.json().catch(() => ({}));
+                                        if (!res.ok) throw new Error(json.error ?? 'Failed to delete user');
+                                        setUsers((prev) => prev.filter((x) => x.id !== u.id));
+                                        showToast('User deleted', 'success');
+                                      } catch (err) {
+                                        showToast((err as Error).message, 'error');
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold hover:bg-red-600 hover:border-red-600"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {userCreateOpen && (
+                      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                        <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+                          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                            <div className="text-white font-bold">Create user</div>
+                            <button onClick={() => setUserCreateOpen(false)} className="text-slate-400 hover:text-white">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="p-5 space-y-3">
+                            <label className="block">
+                              <div className="text-xs text-slate-400 mb-1">Username</div>
+                              <input
+                                value={userCreateForm.username}
+                                onChange={(e) => setUserCreateForm((p) => ({ ...p, username: e.target.value }))}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="text-xs text-slate-400 mb-1">Password</div>
+                              <input
+                                type="password"
+                                value={userCreateForm.password}
+                                onChange={(e) => setUserCreateForm((p) => ({ ...p, password: e.target.value }))}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500"
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="text-xs text-slate-400 mb-1">Role</div>
+                              <select
+                                value={userCreateForm.role}
+                                onChange={(e) => setUserCreateForm((p) => ({ ...p, role: e.target.value === 'admin' ? 'admin' : 'staff' }))}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500"
+                              >
+                                <option value="staff">staff</option>
+                                <option value="admin">admin</option>
+                              </select>
+                            </label>
+                            <button
+                              disabled={userCreateSaving}
+                              onClick={async () => {
+                                const username = userCreateForm.username.trim();
+                                const password = userCreateForm.password;
+                                if (!username || !password) {
+                                  showToast('Username and password are required', 'error');
+                                  return;
+                                }
+                                setUserCreateSaving(true);
+                                try {
+                                  const res = await fetch('/api/admin/users', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ username, password, role: userCreateForm.role }),
+                                  });
+                                  const json = await res.json().catch(() => ({}));
+                                  if (!res.ok) throw new Error(json.error ?? 'Failed to create user');
+                                  setUsers((prev) => [json.user, ...prev]);
+                                  showToast('User created', 'success');
+                                  setUserCreateOpen(false);
+                                } catch (err) {
+                                  showToast((err as Error).message, 'error');
+                                } finally {
+                                  setUserCreateSaving(false);
+                                }
+                              }}
+                              className="w-full mt-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-60"
+                            >
+                              {userCreateSaving ? 'Creating…' : 'Create'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {settingsTab === 'maintenance' && (

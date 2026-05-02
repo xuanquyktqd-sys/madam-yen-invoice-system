@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { optimizeImage, preValidate } from '@/lib/image-processor';
 import { queueOcrJob, triggerOcrWorker } from '@/lib/ocr-jobs';
 import { uploadOcrJobImage } from '@/lib/storage-service';
+import { requireSession } from '@/lib/auth';
 
 export const runtime = 'nodejs'; // Required for sharp + buffer operations
 export const maxDuration = 60;
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest) {
   console.log('[API] POST /api/process — new request');
 
   try {
+    const session = await requireSession(request);
+
     // ── Step 1: Parse multipart form data ──────────────────────────────
     const formData = await request.formData();
     const file = formData.get('image') as File | null;
@@ -81,6 +84,7 @@ export async function POST(request: NextRequest) {
         bucket: upload.bucket,
         path: upload.path,
         publicUrl: upload.publicUrl,
+        createdBy: session.userId,
         maxAttempts: 3,
       });
     } catch (jobError) {

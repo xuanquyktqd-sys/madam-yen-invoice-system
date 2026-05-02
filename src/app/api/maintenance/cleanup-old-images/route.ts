@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireRole } from '@/lib/auth';
 
 const BUCKET = 'invoice-images';
 
@@ -77,6 +78,7 @@ async function removeInBatches(paths: string[]): Promise<number> {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireRole(req, 'admin');
     const body = (await req.json().catch(() => ({}))) as CleanupRequest;
     const olderThanMonths = Math.max(1, Math.min(60, Number(body.olderThanMonths ?? 3)));
     const dryRun = !!body.dryRun;
@@ -172,7 +174,9 @@ export async function POST(req: NextRequest) {
       totalDeleted: dryRun ? 0 : totalDeleted,
     });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const msg = (err as Error).message;
+    if (msg === 'UNAUTHENTICATED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (msg === 'FORBIDDEN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
-
