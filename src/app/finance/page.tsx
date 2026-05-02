@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { fmtDate, type FinanceTab, type DatePreset, type DailySale, type UtilityBill, type LabourCost, type OtherExpense, type FinanceSummary } from './components/types';
 import OverviewTab from './components/OverviewTab';
 import RevenueTab from './components/RevenueTab';
+import PurchasesTab from './components/PurchasesTab';
 import UtilityTab from './components/UtilityTab';
 import LabourTab from './components/LabourTab';
 import OtherExpTab from './components/OtherExpTab';
@@ -10,6 +11,7 @@ import OtherExpTab from './components/OtherExpTab';
 const TABS: { key: FinanceTab; label: string; icon: string; color: string }[] = [
   { key: 'overview', label: 'Tổng Quan', icon: '📊', color: 'indigo' },
   { key: 'revenue', label: 'Doanh Thu', icon: '📈', color: 'emerald' },
+  { key: 'purchases', label: 'Nguyên Vật Liệu', icon: '🥩', color: 'blue' },
   { key: 'utility', label: 'Vận Hành', icon: '⚡', color: 'amber' },
   { key: 'labour', label: 'Nhân Công', icon: '👷', color: 'teal' },
   { key: 'other', label: 'Chi Phí Khác', icon: '📦', color: 'rose' },
@@ -289,6 +291,7 @@ export default function FinancePage() {
         <div className="min-h-[500px] animate-in fade-in duration-500">
           {tab === 'overview' && <OverviewTab summary={summary} loading={summaryLoading} />}
           {tab === 'revenue' && <RevenueTab sales={sales} loading={salesLoading} onAdd={addRevenue} onDelete={deleteRevenue} />}
+          {tab === 'purchases' && <PurchasesTab />}
           {tab === 'utility' && <UtilityTab bills={bills} loading={billsLoading} onAdd={addBill} onDelete={deleteBill} />}
           {tab === 'labour' && <LabourTab costs={labourCosts} loading={labourLoading} onAdd={addLabour} onDelete={deleteLabour} />}
           {tab === 'other' && <OtherExpTab expenses={otherExp} loading={otherLoading} onAdd={addOther} onDelete={deleteOther} />}
