@@ -374,7 +374,7 @@ export default function FinancePage() {
         <div className="min-h-[500px] animate-in fade-in duration-500">
           {tab === 'overview' && <OverviewTab summary={summary} loading={summaryLoading} />}
           {tab === 'revenue' && <RevenueTab sales={sales} loading={salesLoading} onAdd={addRevenue} onDelete={deleteRevenue} />}
-          {tab === 'purchases' && <PurchasesTab />}
+          {tab === 'purchases' && <PurchasesTab dateFrom={dateFrom} dateTo={dateTo} />}
           {tab === 'utility' && <UtilityTab bills={bills} loading={billsLoading} onAdd={addBill} onDelete={deleteBill} />}
           {tab === 'labour' && <LabourTab costs={labourCosts} loading={labourLoading} onAdd={addLabour} onDelete={deleteLabour} />}
           {tab === 'other' && <OtherExpTab expenses={otherExp} loading={otherLoading} onAdd={addOther} onDelete={deleteOther} />}
