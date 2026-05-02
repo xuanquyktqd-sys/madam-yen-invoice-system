@@ -68,6 +68,31 @@ export default function FinancePage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  // ── Cache Logic ──────────────────────────────────────────────────────
+  const CACHE_PREFIX = 'madam-yen:finance:';
+  const writeCache = (key: string, data: any) => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ data, savedAt: Date.now() }));
+  };
+  const readCache = (key: string) => {
+    if (typeof window === 'undefined') return null;
+    const raw = window.sessionStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    try {
+      const { data, savedAt } = JSON.parse(raw);
+      // Cache hết hạn sau 30 phút
+      if (Date.now() - savedAt > 30 * 60 * 1000) return null;
+      return data;
+    } catch { return null; }
+  };
+  const clearFinanceCache = () => {
+    if (typeof window === 'undefined') return;
+    for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+      const key = window.sessionStorage.key(i);
+      if (key?.startsWith(CACHE_PREFIX)) window.sessionStorage.removeItem(key);
+    }
+  };
+
   const applyPreset = useCallback((preset: DatePreset) => {
     setDatePreset(preset);
     if (preset === 'custom') return;
@@ -95,9 +120,14 @@ export default function FinancePage() {
   // Global Data Change Listener - CỰC KỲ CẨN THẬN Ở ĐÂY
   useEffect(() => {
     const handleDataChange = () => {
-      console.log('External data change detected, refreshing...');
-      // Không dùng refreshAll trực tiếp để tránh dependency loop
+      console.log('External data change detected, clearing finance cache and refreshing...');
+      clearFinanceCache();
       void fetchSummary();
+      // Cũng refresh luôn tab hiện tại nếu cần
+      if (tab === 'revenue') void fetchSales();
+      if (tab === 'utility') void fetchBills();
+      if (tab === 'labour') void fetchLabour();
+      if (tab === 'other') void fetchOther();
     };
     window.addEventListener('finance-data-changed', handleDataChange);
     return () => window.removeEventListener('finance-data-changed', handleDataChange);
@@ -112,22 +142,33 @@ export default function FinancePage() {
 
   // Fetchers
   const fetchSummary = useCallback(async () => {
+    const cacheKey = `summary:${buildParams()}`;
+    const cached = readCache(cacheKey);
+    if (cached) { setSummary(cached); return; }
+
     setSummaryLoading(true);
     try {
       const res = await fetch(`/api/finance/summary?${buildParams()}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       setSummary(json);
+      writeCache(cacheKey, json);
     } catch { setSummary(null); }
     finally { setSummaryLoading(false); }
   }, [buildParams]);
 
   const fetchSales = useCallback(async () => {
+    const cacheKey = `sales:${buildParams()}`;
+    const cached = readCache(cacheKey);
+    if (cached) { setSales(cached); return; }
+
     setSalesLoading(true);
     try {
       const res = await fetch(`/api/finance/revenue?${buildParams()}`);
       const json = await res.json();
-      setSales(Array.isArray(json.sales) ? json.sales : []);
+      const data = Array.isArray(json.sales) ? json.sales : [];
+      setSales(data);
+      writeCache(cacheKey, data);
     } catch { setSales([]); }
     finally { setSalesLoading(false); }
   }, [buildParams]);
