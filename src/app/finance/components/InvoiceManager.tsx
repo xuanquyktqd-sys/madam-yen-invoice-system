@@ -248,7 +248,7 @@ const normalizeVendorName = (value: string) =>
     .replace(/\s+/g, ' ');
 
 // ─── Dashboard Page ──────────────────────────────────────────────────────────
-export default function InvoiceManager() {
+export default function InvoiceManager({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }) {
   // ... toàn bộ state và logic giữ nguyên ...
   type MoneyFieldKey = 'sub_total' | 'freight' | 'gst_amount' | 'total_amount';
   type MoneyFormState = {
@@ -271,11 +271,6 @@ export default function InvoiceManager() {
 
   // ── Event Listeners ──────────────────────────────────────────────────
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
-  const [datePreset, setDatePreset] = useState<DatePreset>('week');
-  const [dateFrom, setDateFrom] = useState<string>('');
-  const [dateTo, setDateTo] = useState<string>('');
-  const [customFrom, setCustomFrom] = useState<string>(formatYmdLocal(new Date()));
-  const [customTo, setCustomTo] = useState<string>(formatYmdLocal(new Date()));
   const [reportLoading, setReportLoading] = useState(false);
   const [costReport, setCostReport] = useState<CostReport | null>(null);
   const [reportVendorFilter, setReportVendorFilter] = useState('');
@@ -409,86 +404,6 @@ export default function InvoiceManager() {
       !!inv.parent_invoice_id
     );
 
-  const applyDatePreset = (preset: DatePreset) => {
-    setDatePreset(preset);
-
-    const today = new Date();
-
-    if (preset === 'all') {
-      setDateFrom('');
-      setDateTo('');
-      return;
-    }
-
-    if (preset === 'custom') {
-      // Pause date filter until user clicks "Apply"
-      setDateFrom('');
-      setDateTo('');
-      return;
-    }
-
-    if (preset === 'day') {
-      const ymd = formatYmdLocal(today);
-      setDateFrom(ymd);
-      setDateTo(ymd);
-      return;
-    }
-
-    if (preset === 'week') {
-      const day = today.getDay(); // 0=Sun
-      const diffToMonday = (day + 6) % 7;
-      const start = new Date(today);
-      start.setDate(today.getDate() - diffToMonday);
-      const end = new Date(start);
-      end.setDate(start.getDate() + 6);
-      setDateFrom(formatYmdLocal(start));
-      setDateTo(formatYmdLocal(end));
-      return;
-    }
-
-    if (preset === 'last_week') {
-      const day = today.getDay(); // 0=Sun
-      const diffToMonday = (day + 6) % 7;
-      const thisWeekStart = new Date(today);
-      thisWeekStart.setDate(today.getDate() - diffToMonday);
-      const start = new Date(thisWeekStart);
-      start.setDate(thisWeekStart.getDate() - 7);
-      const end = new Date(start);
-      end.setDate(start.getDate() + 6);
-      setDateFrom(formatYmdLocal(start));
-      setDateTo(formatYmdLocal(end));
-      return;
-    }
-
-    if (preset === 'last_month') {
-      const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const end = new Date(today.getFullYear(), today.getMonth(), 0);
-      setDateFrom(formatYmdLocal(start));
-      setDateTo(formatYmdLocal(end));
-      return;
-    }
-
-    // month
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    setDateFrom(formatYmdLocal(start));
-    setDateTo(formatYmdLocal(end));
-  };
-
-  const applyCustomRange = () => {
-    const f = customFrom.trim();
-    const t = customTo.trim();
-    if (!f || !t) {
-      showToast('Select both From and To dates', 'error');
-      return;
-    }
-    const from = f <= t ? f : t;
-    const to = f <= t ? t : f;
-    setDatePreset('custom');
-    setDateFrom(from);
-    setDateTo(to);
-  };
-
   const buildInvoiceParams = useCallback(() => {
     const params = new URLSearchParams();
     if (filterStatus !== 'all') params.set('status', filterStatus);
@@ -548,11 +463,6 @@ export default function InvoiceManager() {
   }, [buildInvoiceParams]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-
-  useEffect(() => {
-    // Default: this week
-    applyDatePreset('week');
-  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -3123,75 +3033,18 @@ export default function InvoiceManager() {
                 />
               </div>
             )}
-            <div className="flex gap-2">
-              {(['all', 'pending_review', 'approved', 'rejected', 'paid'] as FilterStatus[]).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setFilterStatus(s)}
-                  className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border
-                    ${filterStatus === s
-                      ? 'bg-emerald-600 border-emerald-500 text-white'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
                   {s === 'all' ? 'All' : statusConfig[s]?.label}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <div className="flex flex-wrap gap-2">
-              {([
-                { key: 'week', label: 'This week' },
-                { key: 'last_week', label: 'Last week' },
-                { key: 'all', label: 'All time' },
-                { key: 'day', label: 'Today' },
-                { key: 'month', label: 'This month' },
-                { key: 'last_month', label: 'Last month' },
-                { key: 'custom', label: 'Custom' },
-              ] as Array<{ key: DatePreset; label: string }>).map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => applyDatePreset(p.key)}
-                  className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border
-                    ${datePreset === p.key
-                      ? 'bg-slate-800 border-slate-600 text-white'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
-                  {p.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span>📅 Dải ngày:</span>
+              <span className="font-mono text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded-lg">
+                {dateFrom || 'Mọi lúc'} — {dateTo || 'Mọi lúc'}
+              </span>
             </div>
-
-            {datePreset === 'custom' && (
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100"
-                />
-                <span className="text-xs text-slate-500 hidden sm:inline">→</span>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100"
-                />
-                <button
-                  onClick={applyCustomRange}
-                  className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 transition-colors"
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-
-            {(dateFrom || dateTo) && (
-              <div className="text-xs text-slate-500 sm:ml-auto">
-                Filtering: <span className="font-mono text-slate-300">{dateFrom || '…'}</span> →{' '}
-                <span className="font-mono text-slate-300">{dateTo || '…'}</span>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* ── Invoice table / cards ──────────────────────────────────────────── */}
