@@ -1,5 +1,5 @@
 export type FinanceTab = 'overview' | 'revenue' | 'purchases' | 'utility' | 'labour' | 'other';
-export type DatePreset = 'week' | 'month' | 'last_month' | 'custom' | 'all';
+export type DatePreset = 'day' | 'week' | 'last_week' | 'month' | 'last_month' | 'custom' | 'all';
 
 export type DailySale = {
   id: string; sale_date: string; total_revenue: number; order_count: number;
