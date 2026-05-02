@@ -244,12 +244,27 @@ export default function FinancePage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <a href="/dashboard" className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-sm font-medium transition-all border border-slate-700">
-                ← Invoices
-              </a>
+              <button 
+                onClick={() => {
+                  // Mở settings modal (cần truyền state xuống hoặc dùng event)
+                  window.dispatchEvent(new CustomEvent('open-finance-settings'));
+                }}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-sm font-medium transition-all border border-slate-700"
+              >
+                ⚙️ Cài đặt
+              </button>
               <a href="/upload" className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl text-sm font-medium transition-all shadow-lg shadow-emerald-900/50">
-                📸 Upload
+                📸 Scan OCR
               </a>
+              <button
+                onClick={async () => {
+                  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                  window.location.href = '/login';
+                }}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-400 px-3 py-2 rounded-xl text-sm font-medium transition-all border border-slate-700"
+              >
+                🚪 Thoát
+              </button>
             </div>
           </div>
         </div>
