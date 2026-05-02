@@ -21,6 +21,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  // Maintenance states
+  const [cleanupMonths, setCleanupMonths] = useState(6);
+  const [cleanupIncludeJobs, setCleanupIncludeJobs] = useState(true);
+
   // Vendor Create Form
   const [vendorCreateOpen, setVendorCreateOpen] = useState(false);
   const [vendorForm, setVendorForm] = useState({ name: '', gst_number: '', address: '', default_category: '' });
@@ -96,6 +100,32 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
       window.dispatchEvent(new CustomEvent('vendor-settings-updated'));
     } catch (err) {
       showToast('Lỗi khi xóa', 'error');
+    }
+  };
+
+  const handleCleanupImages = async (dryRun: boolean) => {
+    if (!dryRun && !window.confirm(`Xóa tất cả ảnh cũ hơn ${cleanupMonths} tháng? Thao tác này không thể hoàn tác!`)) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/maintenance/cleanup-old-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          olderThanMonths: cleanupMonths,
+          dryRun: dryRun,
+          includeOcrJobImages: cleanupIncludeJobs
+        }),
+      });
+      const json = await res.json();
+      if (dryRun) {
+        showToast(`Chạy thử: Tìm thấy ${json.totalPlanned || 0} file có thể xóa`, 'success');
+      } else {
+        showToast(`Đã xóa thành công ${json.totalDeleted || 0} file`, 'success');
+      }
+    } catch (err) {
+      showToast('Lỗi khi dọn dẹp ảnh', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -195,16 +225,16 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
               <div className="space-y-6">
                 <h3 className="text-xl font-bold text-white">Bảo trì hệ thống</h3>
                 
+                {/* ── Cleanup Catalog ── */}
                 <div className="bg-indigo-900/10 border border-indigo-900/30 p-6 rounded-3xl space-y-4">
                   <div className="flex items-start gap-4">
                     <span className="text-2xl text-indigo-400">🧹</span>
                     <div>
                       <h4 className="font-bold text-white text-lg">Dọn dẹp Catalog rác (Orphans)</h4>
-                      <p className="text-sm text-slate-400 mt-1">Xóa các Nhà cung cấp, Sản phẩm, Đơn vị tính không còn được tham chiếu bởi bất kỳ hóa đơn nào.</p>
+                      <p className="text-sm text-slate-400 mt-1">Xóa các NCC, Sản phẩm không còn được tham chiếu bởi bất kỳ hóa đơn nào.</p>
                     </div>
                   </div>
-                  <div className="pt-4 border-t border-indigo-900/20 flex items-center justify-between">
-                    <span className="text-sm text-slate-500">Giúp làm gọn danh sách gợi ý khi nhập hóa đơn.</span>
+                  <div className="pt-4 border-t border-indigo-900/20 flex items-center justify-end">
                     <button 
                       onClick={async () => {
                         if (!window.confirm('Dọn dẹp các mục không sử dụng?')) return;
@@ -223,27 +253,64 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
                       }}
                       className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-900/40"
                     >
-                      Chạy dọn dẹp ngay
+                      Chạy dọn dẹp Catalog
                     </button>
                   </div>
                 </div>
 
-                <div className="bg-rose-900/10 border border-rose-900/30 p-6 rounded-3xl space-y-4">
+                {/* ── Cleanup Images ── */}
+                <div className="bg-rose-900/10 border border-rose-900/30 p-6 rounded-3xl space-y-5">
                   <div className="flex items-start gap-4">
                     <span className="text-2xl text-rose-400">🖼️</span>
                     <div>
-                      <h4 className="font-bold text-white text-lg">Xóa ảnh hóa đơn cũ</h4>
-                      <p className="text-sm text-slate-400 mt-1">Giải phóng dung lượng lưu trữ (Supabase Storage) bằng cách xóa ảnh hóa đơn đã cũ.</p>
+                      <h4 className="font-bold text-white text-lg">Dọn dẹp kho ảnh hóa đơn</h4>
+                      <p className="text-sm text-slate-400 mt-1">Xóa các file ảnh/PDF trong Storage để giải phóng dung lượng (5GB giới hạn).</p>
                     </div>
                   </div>
-                  <div className="pt-4 border-t border-rose-900/20 flex items-center justify-between">
-                    <span className="text-sm text-slate-500">Lưu ý: Thao tác này không thể hoàn tác.</span>
-                    <button 
-                      onClick={() => showToast('Tính năng đang được tối ưu', 'error')}
-                      className="px-5 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-sm font-bold hover:bg-rose-600 hover:text-white transition-all border border-slate-700"
-                    >
-                      Xóa ảnh cũ
-                    </button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                      <label className="block">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Xóa ảnh cũ hơn (Tháng)</span>
+                        <input 
+                          type="number" 
+                          min={1} 
+                          value={cleanupMonths} 
+                          onChange={e => setCleanupMonths(parseInt(e.target.value) || 6)}
+                          className="w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-white outline-none focus:border-rose-500"
+                        />
+                      </label>
+                    </div>
+                    <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800 flex items-center gap-3">
+                      <input 
+                        type="checkbox" 
+                        id="include-jobs"
+                        checked={cleanupIncludeJobs} 
+                        onChange={e => setCleanupIncludeJobs(e.target.checked)}
+                        className="w-5 h-5 rounded bg-slate-800 border-slate-700 text-rose-600"
+                      />
+                      <label htmlFor="include-jobs" className="text-sm text-slate-300 cursor-pointer select-none">
+                        Bao gồm cả ảnh tạm của OCR Jobs
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-rose-900/20 flex flex-wrap items-center justify-between gap-4">
+                    <span className="text-xs text-slate-500 font-medium italic">⚠️ Lưu ý: File đã xóa sẽ không thể phục hồi.</span>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleCleanupImages(true)}
+                        className="px-4 py-2 bg-slate-800 text-slate-200 rounded-xl text-sm font-bold hover:bg-slate-700 transition-all border border-slate-700"
+                      >
+                        Chạy thử (Dry Run)
+                      </button>
+                      <button 
+                        onClick={() => handleCleanupImages(false)}
+                        className="px-5 py-2.5 bg-rose-600 text-white rounded-xl text-sm font-bold hover:bg-rose-500 transition-all shadow-lg shadow-rose-900/40"
+                      >
+                        Xóa vĩnh viễn
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
