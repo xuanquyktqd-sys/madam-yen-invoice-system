@@ -27,8 +27,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
   const [cleanupMonths, setCleanupMonths] = useState(6);
   const [cleanupIncludeJobs, setCleanupIncludeJobs] = useState(true);
 
-  // Vendor Create Form
+  // Vendor Create/Edit Form
   const [vendorCreateOpen, setVendorCreateOpen] = useState(false);
+  const [vendorEditOpen, setVendorEditOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<any>(null);
   const [vendorForm, setVendorForm] = useState({ name: '', gst_number: '', address: '', default_category: '' });
 
   const fetchUtilityEmails = async () => {
@@ -124,6 +126,28 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
       window.dispatchEvent(new CustomEvent('vendor-settings-updated'));
     } catch (err) {
       showToast('Lỗi cập nhật GST', 'error');
+    }
+  };
+
+  const handleUpdateVendor = async () => {
+    if (!editingVendor || !vendorForm.name) return;
+    try {
+      const res = await fetch('/api/vendor-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          vendor_id: editingVendor.id,
+          ...vendorForm
+        }),
+      });
+      if (!res.ok) throw new Error('Update failed');
+      showToast('Đã cập nhật Vendor', 'success');
+      setVendorEditOpen(false);
+      setEditingVendor(null);
+      fetchVendors();
+      window.dispatchEvent(new CustomEvent('vendor-settings-updated'));
+    } catch (err) {
+      showToast((err as Error).message, 'error');
     }
   };
 
@@ -249,12 +273,31 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
                               {v.prices_include_gst ? 'ĐANG BẬT' : 'ĐANG TẮT'}
                             </button>
                           </div>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => {
+                              setEditingVendor(v);
+                              setVendorForm({ 
+                                name: v.name, 
+                                gst_number: v.gst_number || '', 
+                                address: v.address || '', 
+                                default_category: v.default_category || '' 
+                              });
+                              setVendorEditOpen(true);
+                            }}
+                            className="p-2 text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="Sửa thông tin"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
                           <button 
                             onClick={() => handleDeleteVendor(v.id, v.name)}
                             className="p-2 text-slate-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="Xóa nhà cung cấp"
                           >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
+                        </div>
                         </div>
                       </div>
                     ))}
@@ -440,7 +483,49 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
           </div>
         </div>
 
-        {/* Create Vendor Overlay */}
+        {/* Edit Vendor Overlay */}
+        {vendorEditOpen && (
+          <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
+            <div className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="px-6 py-4 border-b border-slate-700 font-bold text-white flex justify-between items-center">
+                <span>Sửa thông tin: {editingVendor?.name}</span>
+                <button onClick={() => setVendorEditOpen(false)} className="text-slate-500 hover:text-white">✕</button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Tên nhà cung cấp</label>
+                  <input 
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-500" 
+                    placeholder="Tên NCC" 
+                    value={vendorForm.name}
+                    onChange={e => setVendorForm({...vendorForm, name: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">GST Number</label>
+                  <input 
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-500 font-mono" 
+                    placeholder="GST Number" 
+                    value={vendorForm.gst_number}
+                    onChange={e => setVendorForm({...vendorForm, gst_number: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Địa chỉ</label>
+                  <input 
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-500 text-sm" 
+                    placeholder="Địa chỉ" 
+                    value={vendorForm.address}
+                    onChange={e => setVendorForm({...vendorForm, address: e.target.value})}
+                  />
+                </div>
+                <button onClick={handleUpdateVendor} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-900/40 mt-2">
+                  Lưu thay đổi
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {vendorCreateOpen && (
           <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
             <div className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95">

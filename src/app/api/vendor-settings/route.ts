@@ -24,14 +24,21 @@ export async function PATCH(request: NextRequest) {
   try {
     await requireRole(request, 'admin');
     const body = await request.json().catch(() => ({}));
-    const vendorId = typeof body?.vendor_id === 'string' ? body.vendor_id : '';
-    const value = typeof body?.prices_include_gst === 'boolean' ? body.prices_include_gst : null;
+    const { vendor_id, name, gst_number, address, default_category, prices_include_gst } = body;
 
-    if (!vendorId || value === null) {
-      return NextResponse.json({ error: 'vendor_id and prices_include_gst are required' }, { status: 400 });
+    if (!vendor_id) {
+      return NextResponse.json({ error: 'vendor_id is required' }, { status: 400 });
     }
 
-    const ok = await updateVendorPricesIncludeGst(vendorId, value);
+    const { updateVendor } = await import('@/lib/db-service');
+    const ok = await updateVendor(vendor_id, {
+      name,
+      gst_number,
+      address,
+      default_category,
+      prices_include_gst
+    });
+
     if (!ok) return NextResponse.json({ error: 'Failed to update vendor' }, { status: 500 });
     return NextResponse.json({ success: true });
   } catch (err) {

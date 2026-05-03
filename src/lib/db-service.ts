@@ -711,6 +711,41 @@ export async function updateInvoiceStatus(
   }
 }
 
+export async function updateVendor(
+  id: string,
+  input: {
+    name?: string;
+    gst_number?: string | null;
+    address?: string | null;
+    default_category?: string | null;
+    is_active?: boolean;
+    prices_include_gst?: boolean;
+  }
+): Promise<boolean> {
+  const fields: string[] = [];
+  const values: unknown[] = [id];
+  let idx = 2;
+
+  const setField = (name: string, val: unknown) => {
+    fields.push(`${name} = $${idx++}`);
+    values.push(val);
+  };
+
+  if (input.name !== undefined) setField('name', input.name);
+  if (input.gst_number !== undefined) setField('gst_number', input.gst_number);
+  if (input.address !== undefined) setField('address', input.address);
+  if (input.default_category !== undefined) setField('default_category', input.default_category);
+  if (input.is_active !== undefined) setField('is_active', input.is_active);
+  if (input.prices_include_gst !== undefined) setField('prices_include_gst', input.prices_include_gst);
+
+  if (fields.length === 0) return true;
+
+  fields.push(`updated_at = NOW()`);
+  const sql = `UPDATE vendors SET ${fields.join(', ')} WHERE id = $1`;
+  const res = await pool.query(sql, values);
+  return (res.rowCount ?? 0) > 0;
+}
+
 // ── List invoices with items ───────────────────────────────────────────────
 export async function listInvoices(opts: {
   status?: string;
