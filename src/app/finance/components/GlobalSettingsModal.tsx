@@ -319,8 +319,8 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
                 )}
               </div>
             </div>
-          )}
-              <div className="space-y-6">
+            {tab === 'maintenance' && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <h3 className="text-xl font-bold text-white">Bảo trì hệ thống</h3>
                 
                 {/* ── Cleanup Catalog ── */}
