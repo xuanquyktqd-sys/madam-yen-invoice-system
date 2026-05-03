@@ -404,15 +404,16 @@ export default function FinancePage() {
             </div>
 
             {datePreset === 'custom' && (
+              <div className="space-y-3 p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-3xl animate-in fade-in slide-in-from-top-2 duration-300 mt-2">
                 <div className="space-y-1">
                   <label className="text-[10px] text-slate-500 font-bold ml-1">TỪ</label>
-                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="w-full bg-slate-900 border-none rounded-lg text-xs text-indigo-300 font-mono focus:ring-1 focus:ring-indigo-500" />
+                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="w-full bg-slate-900 border-none rounded-lg text-xs text-indigo-300 font-mono focus:ring-1 focus:ring-indigo-500 px-3 py-2" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-slate-500 font-bold ml-1">ĐẾN</label>
-                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="w-full bg-slate-900 border-none rounded-lg text-xs text-indigo-300 font-mono focus:ring-1 focus:ring-indigo-500" />
+                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="w-full bg-slate-900 border-none rounded-lg text-xs text-indigo-300 font-mono focus:ring-1 focus:ring-indigo-500 px-3 py-2" />
                 </div>
-                <button onClick={() => { setDateFrom(customFrom); setDateTo(customTo); }} className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all mt-1">
+                <button onClick={() => { setDateFrom(customFrom); setDateTo(customTo); }} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all mt-1 shadow-lg shadow-indigo-900/20">
                   Áp dụng
                 </button>
               </div>
