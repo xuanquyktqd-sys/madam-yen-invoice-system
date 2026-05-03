@@ -30,6 +30,17 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'vendor_id is required' }, { status: 400 });
     }
 
+    // Vá Database nếu thiếu cột (Migration nhanh)
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
+    await pool.query(`
+      ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_category TEXT;
+      ALTER TABLE vendors ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+    `).catch(e => console.error('Migration error:', e));
+
     const { updateVendor } = await import('@/lib/db-service');
     const ok = await updateVendor(vendor_id, {
       name,
