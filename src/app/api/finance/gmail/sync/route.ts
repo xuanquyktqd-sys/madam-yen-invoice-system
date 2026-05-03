@@ -74,6 +74,10 @@ export async function POST(req: NextRequest) {
           }
 
           const base64Data = await import('@/lib/gmail-service').then(m => m.getAttachment(messageId, attachmentPart.body!.attachmentId!));
+          if (!base64Data) {
+            return { messageId, status: 'skipped', reason: 'Dữ liệu file trống' };
+          }
+          
           const buffer = Buffer.from(base64Data, 'base64');
 
           const { data: ocrData } = await extractInvoiceData(buffer);
