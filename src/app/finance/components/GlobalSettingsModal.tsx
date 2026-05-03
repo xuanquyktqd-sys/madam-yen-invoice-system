@@ -16,8 +16,10 @@ type VendorSetting = {
 };
 
 export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
-  const [tab, setTab] = useState<'vendors' | 'maintenance' | 'general'>('vendors');
+  const [tab, setTab] = useState<'vendors' | 'maintenance' | 'general' | 'gmail'>('vendors');
   const [vendors, setVendors] = useState<VendorSetting[]>([]);
+  const [utilityEmails, setUtilityEmails] = useState<{id: number, email: string, provider_name: string}[]>([]);
+  const [newEmail, setNewEmail] = useState({ email: '', provider_name: '' });
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -29,9 +31,48 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
   const [vendorCreateOpen, setVendorCreateOpen] = useState(false);
   const [vendorForm, setVendorForm] = useState({ name: '', gst_number: '', address: '', default_category: '' });
 
+  const fetchUtilityEmails = async () => {
+    try {
+      const res = await fetch('/api/finance/utility-emails');
+      const json = await res.json();
+      setUtilityEmails(json.emails || []);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleAddEmail = async () => {
+    if (!newEmail.email) return;
+    try {
+      const res = await fetch('/api/finance/utility-emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEmail),
+      });
+      if (!res.ok) throw new Error('Thêm thất bại');
+      showToast('Đã thêm email nhà cung cấp', 'success');
+      setNewEmail({ email: '', provider_name: '' });
+      fetchUtilityEmails();
+    } catch (err) { showToast((err as Error).message, 'error'); }
+  };
+
+  const handleDeleteEmail = async (id: number) => {
+    if (!confirm('Xóa email này?')) return;
+    try {
+      await fetch('/api/finance/utility-emails', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      fetchUtilityEmails();
+      showToast('Đã xóa', 'success');
+    } catch (err) { showToast((err as Error).message, 'error'); }
+  };
+
   useEffect(() => {
-    if (isOpen) fetchVendors();
-  }, [isOpen]);
+    if (isOpen) {
+      if (tab === 'vendors') fetchVendors();
+      if (tab === 'gmail') fetchUtilityEmails();
+    }
+  }, [isOpen, tab]);
 
   const showToast = (text: string, type: 'success' | 'error') => {
     setToast({ text, type });
@@ -150,6 +191,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
           <div className="w-64 border-r border-slate-800 bg-slate-900/30 p-4 space-y-2 hidden md:block">
             {[
               { id: 'vendors', label: 'Nhà cung cấp', icon: '🏢' },
+              { id: 'gmail', label: 'Đồng bộ Gmail', icon: '📥' },
               { id: 'maintenance', label: 'Bảo trì dữ liệu', icon: '🧹' },
               { id: 'general', label: 'Cài đặt chung', icon: '⚙️' },
             ].map(i => (
@@ -221,7 +263,63 @@ export default function GlobalSettingsModal({ isOpen, onClose }: Props) {
               </div>
             )}
 
-            {tab === 'maintenance' && (
+            {tab === 'gmail' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800 space-y-4">
+                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-widest">Thêm Email Nhà Cung Cấp</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Tên nhà cung cấp (VD: Mercury)"
+                    value={newEmail.provider_name}
+                    onChange={(e) => setNewEmail({ ...newEmail, provider_name: e.target.value })}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email (VD: noreply@mercury.co.nz)"
+                    value={newEmail.email}
+                    onChange={(e) => setNewEmail({ ...newEmail, email: e.target.value })}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <button
+                  onClick={handleAddEmail}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-indigo-900/20"
+                >
+                  Thêm vào danh sách quét
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest px-2">Danh sách email đang quét</h3>
+                {utilityEmails.length === 0 ? (
+                  <div className="text-center py-10 bg-slate-900/20 rounded-2xl border border-dashed border-slate-800 text-slate-500 text-sm">
+                    Chưa có email nào. Hãy thêm email để hệ thống có thể tự động quét hóa đơn.
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {utilityEmails.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between p-4 bg-slate-900/40 rounded-2xl border border-slate-800/50 hover:bg-slate-800/40 transition-all">
+                        <div>
+                          <div className="text-sm font-bold text-white">{item.provider_name || 'Không tên'}</div>
+                          <div className="text-xs text-slate-500 font-mono mt-1">{item.email}</div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteEmail(item.id)}
+                          className="p-2 text-slate-500 hover:text-rose-500 transition-colors"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
               <div className="space-y-6">
                 <h3 className="text-xl font-bold text-white">Bảo trì hệ thống</h3>
                 
