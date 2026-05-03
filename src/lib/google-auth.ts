@@ -12,9 +12,7 @@ export const createOAuth2Client = () => {
   );
 };
 
-// Scope cần thiết để đọc Gmail và lấy thông tin người dùng
+// Scope duy nhất cần thiết để đọc Gmail
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
 ];
