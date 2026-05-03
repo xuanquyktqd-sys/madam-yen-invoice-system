@@ -302,6 +302,23 @@ export default function FinancePage() {
     } catch (err) { showToast((err as Error).message, 'error'); }
   };
 
+  const [syncLoading, setSyncLoading] = useState(false);
+
+  const syncGmail = async () => {
+    setSyncLoading(true);
+    try {
+      const res = await fetch('/api/finance/gmail/sync', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Lỗi đồng bộ');
+      showToast(json.message || 'Đồng bộ Gmail thành công', 'success');
+      refreshAll(true);
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   const presets: { key: DatePreset; label: string }[] = [
     { key: 'day', label: 'Hôm nay' },
     { key: 'week', label: 'Tuần này' },
@@ -383,6 +400,21 @@ export default function FinancePage() {
           </div>
 
           <div className="mt-6 pt-6 border-t border-slate-800/60 space-y-2">
+            <button 
+              onClick={syncGmail}
+              disabled={syncLoading}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all border border-transparent ${
+                syncLoading 
+                  ? 'bg-indigo-500/20 text-indigo-300 animate-pulse' 
+                  : 'text-emerald-400 hover:text-white hover:bg-emerald-500/10 hover:border-emerald-500/20'
+              }`}
+            >
+              <span className={`text-xl ${syncLoading ? 'animate-spin' : ''}`}>
+                {syncLoading ? '⏳' : '📥'}
+              </span>
+              {syncLoading ? 'Đang đồng bộ...' : 'Đồng bộ Gmail'}
+            </button>
+
             <button 
               onClick={() => setSettingsOpen(true)}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-800/40 transition-all border border-transparent hover:border-slate-700/50"
