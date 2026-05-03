@@ -55,6 +55,7 @@ export default function FinancePage() {
   const [datePreset, setDatePreset] = useState<DatePreset>('month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(fmtDate(new Date()));
   const [customTo, setCustomTo] = useState(fmtDate(new Date()));
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
