@@ -200,7 +200,8 @@ export default function FinancePage() {
     finally { setOtherLoading(false); }
   }, [buildParams]);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async (manual?: boolean) => {
+    if (manual) clearFinanceCache();
     void fetchSummary();
     if (tab === 'revenue') void fetchSales();
     if (tab === 'utility') void fetchBills();
